@@ -129,8 +129,12 @@ states:
       type: dotnet
       dir: ${{DOTNET_DIR}}
       updateScript: skip-version-update
+      # Maven runtimes drop their artifacts under target/ (the default in
+      # build-and-cache-runtime); dotnet publishes to publish/, so set
+      # buildOutputDir explicitly here.
+      buildOutputDir: publish
       buildCmd: "dotnet publish Dotnet10 -c Release -o publish"
-      runCmd: "env DOTNET_GCHeapHardLimit=${{config.dotnet.gcHeapHardLimit}} DOTNET_ProcessorCount=${{config.resources.app_cpus}} DOTNET_gcServer=1 ${{APP_CMD_PREFIX}} ./publish/dotnet10"
+      runCmd: "env DOTNET_GCHeapHardLimit=${{config.dotnet.gcHeapHardLimit}} DOTNET_ProcessorCount=${{config.resources.app_cpus}} DOTNET_gcServer=1 ${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/dotnet10"
       logFileStartedRegex: ".*dotnet10.+started in.*"
 
 scripts:
@@ -233,7 +237,9 @@ scripts:
       with:
         RUNTIMECMD: ${{RUNTIMECMD}}
     - sh: rm -rf ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
-    - sh: cp -a ${{RUNTIMECMD.dir}}/target ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
+    # buildOutputDir is per-runtime: maven uses target/, dotnet uses publish/.
+    # Defaults to "target" so existing maven entries don't need updating.
+    - sh: cp -a ${{RUNTIMECMD.dir}}/${{RUNTIMECMD.buildOutputDir:target}} ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
 
   run-tests-for-runtime:
     - log: "Testing: ${{RUNTIMECMD.name}}"
