@@ -341,7 +341,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   GRAALVM_HOME=""
   GRAALVM_VERSION="graalvm-community-25.0.2"
   MANDREL_HOME=""
-  MANDREL_VERSION=""
+  MANDREL_VERSION="mandrel-25.0.2.0-Final+java25"
   HOST="LOCAL"
   ITERATIONS="3"
   JAVA_HOME=""
