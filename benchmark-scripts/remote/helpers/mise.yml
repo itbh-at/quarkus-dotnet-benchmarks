@@ -1,0 +1,72 @@
+name: mise helper scripts
+# Replaces the previous sdkman.yml. mise (https://mise.jdx.dev) manages both
+# Java and dotnet runtimes — and a few others — through a single CLI.
+#
+# Version strings follow mise syntax, e.g.:
+#   java@21                           # latest 21.x via mise default backend
+#   java@temurin-21.0.5+11
+#   java@graalvm-community-25.0.2
+#   java@mandrel-24.1.2.0-Final
+#   dotnet@10.0.100
+#
+# These scripts deliberately avoid `mise use` / `.mise.toml` / `.tool-versions`.
+# Versions are always explicit at invocation: `mise exec <runtime>@<ver> -- ...`
+scripts:
+
+  mise-uninstall:
+    - sh: which mise
+    - regex: "no mise in"
+      else:
+        - sh: whoami
+          then:
+            - regex: (?<me>.*)
+        - sh: "[[ -d /home/${{me}}/.local/share/mise ]] && rm -rf /home/${{me}}/.local/share/mise || true"
+        - sh: "[[ -f /home/${{me}}/.local/bin/mise ]] && rm -f /home/${{me}}/.local/bin/mise || true"
+        - sh: sed -i '/mise activate/d' /home/${{me}}/.bashrc
+
+  mise-install:
+    - sh:
+        command: mise --version
+        ignore-exit-code: true
+    - regex: ".*command not found"
+      then:
+        - log: Installing mise
+        - sh: curl -fsSL https://mise.run | sh
+          then:
+            - regex: "(mise: installed|mise installed successfully)"
+              else:
+                - abort: failed to install mise
+        # Activate mise in shell startup so subsequent `sh:` invocations find it on PATH
+        - sh: |
+            grep -q 'mise activate bash' "$HOME/.bashrc" || \
+            echo 'eval "$($HOME/.local/bin/mise activate bash)"' >> "$HOME/.bashrc"
+        - sh: source "$HOME/.bashrc"
+      else:
+        - log: Updating mise
+        - sh: mise self-update -y
+          then:
+            - regex: "(upgraded|up to date|latest)"
+              else:
+                - abort: failed to upgrade mise
+    - sh: mise --version
+      then:
+        - regex: "(?<RUN.mise_version>[\\d\\.]+)"
+
+  # Ensure a runtime version is installed via mise.
+  # Args:
+  #   tool:               java | dotnet | ... (mise tool name)
+  #   version:            mise-style version string (e.g. "21", "temurin-21.0.5+11")
+  #   install_if_missing: true|false — install mise itself if not present
+  #
+  # On success, the install path is captured in state variable
+  # ${{MISE_TOOL_HOME}} (caller is expected to consume immediately).
+  mise-ensure-runtime:
+    - sh: echo ${{install_if_missing:false}}
+      then:
+        - regex: true
+          then:
+            - script: mise-install
+    - sh: mise install ${{tool}}@${{version}}
+    - sh: mise where ${{tool}}@${{version}}
+      then:
+        - regex: (?<RUN.MISE_TOOL_HOME>.+)

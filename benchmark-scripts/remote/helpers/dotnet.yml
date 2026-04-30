@@ -1,8 +1,27 @@
 name: Dotnet related scripts
 scripts:
-  # Generic check — satisfied by any installed .NET SDK version.
-  # When adding a new dotnet version (e.g., dotnet11) no change is needed here
-  # unless you want to pin to a specific major version.
   ensure-dotnet:
-    - log: Showing Dotnet version
+    - sh: echo "${{config.dotnet.home:}}"
+      then:
+        - regex: ^$
+          then:
+            # No local dotnet path provided — install via mise.
+            # The version string follows mise syntax (e.g. "10.0.100", "9.0.100").
+            - script: mise-ensure-runtime
+              with:
+                tool: dotnet
+                version: ${{config.dotnet.version}}
+                install_if_missing: true
+            - sh: export DOTNET_ROOT=${{MISE_TOOL_HOME}}
+            - sh: export PATH=$DOTNET_ROOT:$PATH
+          else:
+            - log: Using locally installed dotnet from ${{config.dotnet.home}}
+            - sh: export DOTNET_ROOT=${{config.dotnet.home}}
+            - sh: export PATH=$DOTNET_ROOT:$PATH
+            - sh: test -x "$DOTNET_ROOT/dotnet"
+              then:
+                - regex: ".*"
+                  else:
+                    - abort: dotnet executable not found at ${{config.dotnet.home}}/dotnet
+    - log: Showing dotnet version
     - sh: dotnet --version

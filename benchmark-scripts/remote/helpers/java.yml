@@ -5,13 +5,14 @@ scripts:
       then:
         - regex: ^$
           then:
-            # No local GraalVM path provided, use SDKMAN
-            - script: sdk-select-java
+            # No local GraalVM path provided, use mise
+            - script: mise-ensure-runtime
               with:
-                java_version: ${{config.jvm.graalvm.version}}
+                tool: java
+                version: ${{config.jvm.graalvm.version}}
                 install_if_missing: true
-            - log: Setting GRAALVM_HOME from SDKMAN
-            - sh: export GRAALVM_HOME=$(sdk home java ${{config.jvm.graalvm.version}})
+            - log: Setting GRAALVM_HOME from mise
+            - sh: export GRAALVM_HOME=${{MISE_TOOL_HOME}}
           else:
             # Local GraalVM path provided
             - log: Using locally installed GraalVM from ${{config.jvm.graalvm.home}}
@@ -40,13 +41,14 @@ scripts:
                   then:
                     - log: No Mandrel version or home configured — skipping Mandrel setup
                   else:
-                    # No local Mandrel path provided, use SDKMAN
-                    - script: sdk-select-java
+                    # No local Mandrel path provided, use mise
+                    - script: mise-ensure-runtime
                       with:
-                        java_version: ${{config.jvm.mandrel.version}}
+                        tool: java
+                        version: ${{config.jvm.mandrel.version}}
                         install_if_missing: true
-                    - log: Setting MANDREL_HOME from SDKMAN
-                    - sh: export MANDREL_HOME=$(sdk home java ${{config.jvm.mandrel.version}})
+                    - log: Setting MANDREL_HOME from mise
+                    - sh: export MANDREL_HOME=${{MISE_TOOL_HOME}}
           else:
             # Local Mandrel path provided
             - log: Using locally installed Mandrel from ${{config.jvm.mandrel.home}}
@@ -73,12 +75,19 @@ scripts:
       then:
         - regex: ^$
           then:
-            # No local Java path provided, use SDKMAN
-            - script: sdk-select-java
+            # No local Java path provided, use mise
+            - script: mise-ensure-runtime
               with:
-                java_version: ${{config.jvm.version}}
-                set_as_default: Y
+                tool: java
+                version: ${{config.jvm.version}}
                 install_if_missing: true
+            # mise has no equivalent of `sdk use` that sets a global default.
+            # Per project convention, every command must be invoked with an
+            # explicit version. Set JAVA_HOME and prepend PATH for the duration
+            # of the qDup session so plain `java` / `mvn` calls resolve to the
+            # selected version.
+            - sh: export JAVA_HOME=${{MISE_TOOL_HOME}}
+            - sh: export PATH=$JAVA_HOME/bin:$PATH
           else:
             # Local Java path provided
             - log: Using locally installed Java from ${{config.jvm.home}}

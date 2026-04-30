@@ -15,12 +15,21 @@ states:
   config.units.load.errors.connectionErrors: absolute number
   config.units.load.errors.requestTimeouts: absolute number
 
+  # Runtime version strings must be in mise syntax (see mise.yml).
+  # Examples:
+  #   java@21                           # latest 21.x via mise default backend
+  #   java@temurin-21.0.5+11
+  #   java@graalvm-community-25.0.2
+  #   java@mandrel-24.1.2.0-Final
+  #   dotnet@10.0.100
   config.jvm.home: #/path/to/java
-  config.jvm.version: 25.0.2-tem
+  config.jvm.version: temurin-25.0.2
   config.jvm.graalvm.home: #/path/to/graalvm
-  config.jvm.graalvm.version: 25.0.2-graalce
+  config.jvm.graalvm.version: graalvm-community-25.0.2
   config.jvm.mandrel.home: #/path/to/mandrel
-  config.jvm.mandrel.version: #24.1.2.r23-mandrel
+  config.jvm.mandrel.version: #mandrel-24.1.2.0-Final
+  config.dotnet.home: #/path/to/dotnet
+  config.dotnet.version: 10.0.100
 
   config.quarkus.version: #3.28.3
   config.springboot3.version: #3.5.6
