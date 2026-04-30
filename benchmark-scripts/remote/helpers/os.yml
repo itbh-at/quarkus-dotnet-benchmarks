@@ -1,0 +1,122 @@
+name: OS-specific/detection scripts
+scripts:
+  detect-os:
+    - sh: uname -a
+      then:
+        - regex: ".*Darwin.*"
+          then:
+            - set-state: RUN.os macos
+        - regex: ".*Linux.*"
+          then:
+            - set-state: RUN.os linux
+
+  capture-system-info-linux:
+    - sh: "grep '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '\"'"
+      then:
+        - set-state: RUN.env.host.os
+    - sh: cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name 2>/dev/null | paste -sd ' ' || echo 'Unknown'
+      then:
+        - set-state: RUN.env.host.type
+    - sh: uname -r
+      then:
+        - set-state: RUN.env.host.kernel
+    - sh: |
+        lscpu | awk -F: '/^Model name:/ {model=$2} /^CPU\(s):/ {cpus=$2} END {gsub(/^[ \t]+|[ \t]+$/, "", model); gsub(/^[ \t]+|[ \t]+$/, "", cpus); print model " (" cpus " cpus)"}'
+      then:
+        - set-state: RUN.env.host.cpu
+    - sh: "lspci | grep -iE 'vga|3d|display' | sed 's/.*: //; s/ (rev.*)$//' | head -n1"
+      then:
+        - set-state: RUN.env.host.gpu
+    - sh: free -h | grep '^Mem:' | awk '{print $2}'
+      then:
+        - set-state: RUN.env.host.memory
+    - sh: lscpu -e > ${{REPO_DIR}}/logs/lscpu.txt
+      then:
+        - download: ${{REPO_DIR}}/logs/lscpu.txt
+        - sh: cat ${{REPO_DIR}}/logs/lscpu.txt
+
+  capture-system-info-macos:
+    - script: check-and-install-package
+      with:
+        command: fastfetch
+        package: fastfetch
+    - sh: |
+        fastfetch --pipe | grep 'OS:' | sed 's/.*OS: \(.*\)/\1/'
+      then:
+        - set-state: RUN.env.host.os
+    - sh: |
+        fastfetch --pipe | grep 'Host:' | sed 's/.*Host: \(.*\)/\1/'
+      then:
+        - set-state: RUN.env.host.type
+    - sh: |
+        fastfetch --pipe | grep 'Kernel:' | sed 's/.*Kernel: \(.*\)/\1/'
+      then:
+        - set-state: RUN.env.host.kernel
+    - sh: |
+        fastfetch --pipe | grep 'CPU:' | sed 's/.*CPU: \(.*\)/\1/'
+      then:
+        - set-state: RUN.env.host.cpu
+    - sh: |
+        fastfetch --pipe | grep 'GPU:' | sed 's/.*GPU: \(.*\)/\1/'
+      then:
+        - set-state: RUN.env.host.gpu
+    - sh: |
+        fastfetch --pipe | grep 'Memory:' | sed 's/.*Memory: \(.*\)/\1/' | awk '{print $4, $5}'
+      then:
+        - set-state: RUN.env.host.memory
+
+  capture-system-info:
+    - script: capture-system-info-${{os}}
+
+  sudo-linux:
+    - sh: sudo ${{command}}
+
+  sudo-macos:
+    - sh: ${{command}}
+
+  sudo:
+    - script: sudo-${{os}}
+      with:
+        command: ${{command}}
+
+  check-and-install-package:
+    - sh: which ${{command}}
+    - regex: ".*no ${{command}} in.*"
+      then:
+        - script: install-package
+          with:
+            package: ${{package}}
+
+  install-package-linux:
+    - script: sudo
+      with:
+        command: dnf install -y ${{package}}
+    - regex: "Error: Unable to find a match: ${{package}}"
+      then:
+        - abort: "Unable to install package: ${{package}}"
+    - set-state:
+        key: RUN.INSTALLED_PACKAGES
+        value: ${{= [...${{RUN.INSTALLED_PACKAGES:[]}}, '${{package}}'] }}
+
+  install-package-macos:
+    - script: install-brew-package ${{package}}
+    - regex: "Error: No formulae or casks found for ${{package}}"
+      then:
+        - abort: "Unable to install package: ${{package}}"
+
+  install-package:
+    - script: install-package-${{os}}
+
+  sync-drop-fs-cache-linux:
+    - sh: echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+
+  sync-drop-fs-cache-macos:
+    - sh: sudo purge
+
+  sync-drop-fs-cache:
+    - read-state: ${{config.run.dropOsFilesystemCaches:false}}
+      then:
+        - regex: true
+          then:
+            - sh: sync
+            - script: sync-drop-fs-cache-${{os}}

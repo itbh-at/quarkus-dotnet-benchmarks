@@ -1,0 +1,52 @@
+upstream:
+  repository: git@github.com:cdhermann/spring-quarkus-perf-comparison.git
+  branch: native-mandrel-with-dotnet
+
+  # Last upstream commit reviewed when this repo was forked
+  last_reviewed_commit: bb2d8808db9ca0575651be848269a0c634a75a44
+  last_reviewed_date: 2026-04-30
+  last_reviewed_message: "Add port cleanup to prevent test failures in extended benchmark runs"
+
+  # Files in the upstream repo to track for drift (relative to upstream root)
+  tracked_files:
+    - quarkus3/src/main/java/org/acme/
+    - quarkus3/src/main/resources/application.yml
+    - quarkus3/pom.xml
+    - quarkus3-virtual/src/main/java/org/acme/
+    - quarkus3-virtual/src/main/resources/application.yml
+    - quarkus3-virtual/pom.xml
+    - scripts/stress.sh
+    - scripts/1strequest.sh
+    - scripts/run-requests.sh
+
+  # How upstream paths map to our paths
+  path_mapping:
+    - upstream: quarkus3/src/
+      ours: apps/quarkus-jvm/src/
+    - upstream: quarkus3/pom.xml
+      ours: apps/quarkus-jvm/pom.xml
+    - upstream: quarkus3-virtual/src/
+      ours: apps/quarkus-virtual/src/
+    - upstream: quarkus3-virtual/pom.xml
+      ours: apps/quarkus-virtual/pom.xml
+    - upstream: scripts/
+      ours: benchmark-scripts/local/
+
+  # Intentional divergences — CheckUpstreamDivergence.java will not flag these
+  intentional_divergences:
+    - files:
+        - springboot3/
+        - springboot4/
+        - quarkus3-spring-compatibility/
+      reason: "Spring modules removed — this repo focuses on Quarkus vs dotnet only"
+      since_commit: bb2d8808db9ca0575651be848269a0c634a75a44
+
+    - files:
+        - .github/
+      reason: "GitHub Actions CI removed — no CI in this independent repo"
+      since_commit: bb2d8808db9ca0575651be848269a0c634a75a44
+
+    - files:
+        - scripts/infra.sh
+      reason: "Moved to benchmark-scripts/local/infra.sh"
+      since_commit: bb2d8808db9ca0575651be848269a0c634a75a44

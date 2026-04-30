@@ -1,0 +1,48 @@
+name: Requirements needed to run benchmarks
+scripts:
+  ensure-requirements:
+    - script: ensure-graalvm
+    - script: ensure-mandrel
+    - script: ensure-java
+    - script: ensure-git
+    - script: ensure-gcc
+    - script: ensure-jbang
+    - script: ensure-jvm-opts
+    - script: ensure-dotnet
+
+  ensure-jvm-opts:
+    - read-state: config.profiler.name
+      then:
+        - regex: ^(jfr|flamegraph)$
+          then:
+            - set-state: PROFILER_JVM_ARGS -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints
+
+  ensure-gcc-linux:
+    - script: check-and-install-package
+      with:
+        command: gcc
+        package: gcc.x86_64 zlib-devel.x86_64
+
+  ensure-gcc-macos:
+    - script: check-and-install-package
+      with:
+        command: gcc
+        package: gcc
+
+  ensure-gcc:
+    - script: ensure-gcc-${{os}}
+
+  ensure-git-linux:
+    - script: check-and-install-package
+      with:
+        command: git
+        package: git-all
+
+  ensure-git-macos:
+    - script: check-and-install-package
+      with:
+        command: git
+        package: git
+
+  ensure-git:
+    - script: ensure-git-${{os}}

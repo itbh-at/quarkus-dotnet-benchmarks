@@ -1,0 +1,25 @@
+# Build output
+target/
+bin/obj/
+bin/Debug/
+bin/Release/
+
+# H2 binary database (SQL export is committed instead)
+database/*.h2.db
+database/*.h2.db.trace.db
+database/*.h2.db.lock.db
+
+# Generated reports (regenerated from DB on demand)
+reports/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Maven
+.mvn/repository/
+
+# mise
+.mise.local.toml
