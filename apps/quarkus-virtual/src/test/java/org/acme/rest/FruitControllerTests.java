@@ -40,7 +40,11 @@ class FruitControllerTests {
   @Test
   public void getAll() {
     var fruit = createFruit();
-    var fruitStorePrice = fruit.getStorePrices().getFirst();
+    // Intentional divergence from upstream: upstream uses List.getFirst()
+    // (JEP 431, Java 21+). Replaced with .get(0) so this benchmark suite
+    // can be built and tested against Java 17, 19, 20, etc. See
+    // upstream.yml > intentional_divergences.
+    var fruitStorePrice = fruit.getStorePrices().get(0);
     var store = fruitStorePrice.getStore();
 
     Mockito.when(this.fruitRepository.listAll())

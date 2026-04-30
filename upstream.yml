@@ -50,3 +50,9 @@ upstream:
         - scripts/infra.sh
       reason: "Moved to benchmark-scripts/local/infra.sh"
       since_commit: bb2d8808db9ca0575651be848269a0c634a75a44
+
+    - files:
+        - quarkus3/src/test/java/org/acme/rest/FruitControllerTests.java
+        - quarkus3-virtual/src/test/java/org/acme/rest/FruitControllerTests.java
+      reason: "Replaced List.getFirst() (JEP 431, Java 21+) with List.get(0) so the benchmark suite can be built and tested under Java 17/19/20. The change is purely API-equivalent and inside test code only — does not affect the application binary or runtime measurements."
+      since_commit: bb2d8808db9ca0575651be848269a0c634a75a44
