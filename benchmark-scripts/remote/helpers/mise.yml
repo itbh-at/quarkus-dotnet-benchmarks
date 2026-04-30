@@ -71,6 +71,13 @@ scripts:
           then:
             - script: mise-install
     - sh: mise install ${{tool}}@${{version}}
+    # Capture the install path. mise emits errors like
+    #   "mise ERROR java@temurin-17.0.13+11.0.LTS not installed"
+    # if the version doesn't exist or the install failed; require the captured
+    # value to be an absolute path so we abort cleanly instead of silently
+    # storing the error message as MISE_TOOL_HOME.
     - sh: mise where ${{tool}}@${{version}}
       then:
-        - regex: (?<RUN.MISE_TOOL_HOME>.+)
+        - regex: "^(?<RUN.MISE_TOOL_HOME>/[^\\s]+)$"
+          else:
+            - abort: "mise could not locate ${{tool}}@${{version}} after install — verify the version exists with 'mise ls-remote ${{tool}}'"
