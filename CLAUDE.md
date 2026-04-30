@@ -59,6 +59,22 @@ mise exec dotnet@8  -- dotnet run --project apps/dotnet-core-aspnet-ef
 The benchmark scripts iterate over configured version lists and invoke each
 variant with `mise exec <runtime>@<version> --`.
 
+### Prerequisites
+
+- **Remote target**: `mise` is installed automatically by the qDup setup chain
+  (`requirements.yml` → `ensure-*` → `mise-ensure-runtime` → `mise-install`).
+- **Local machine**: the user is responsible for installing `mise` (and any
+  other required tooling). Local benchmark scripts that depend on `mise` must
+  begin with a precondition check that **aborts** if it is missing — they must
+  never silently install:
+
+  ```sh
+  command -v mise >/dev/null 2>&1 || {
+    echo "ERROR: mise is required but not installed. See https://mise.jdx.dev" >&2
+    exit 1
+  }
+  ```
+
 ## Infrastructure
 
 PostgreSQL on `localhost:5432`. Managed via:
