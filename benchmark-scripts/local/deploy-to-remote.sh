@@ -113,6 +113,12 @@ rsync -av "$@" "${RUN_INFO_FILE}" "${TARGET}/RUN_INFO"
 echo
 echo "==> Deploy complete."
 echo
+
+# Strip user@ prefix and any :path suffix to get bare host for the hint.
+hint_user_host="${TARGET%%:*}"
+hint_host="${hint_user_host#*@}"
+hint_user="${hint_user_host%@*}"
+
 echo "Run benchmarks (qDup orchestrates from your local machine):"
 echo "    cd benchmark-scripts/remote"
-echo "    bash run-benchmarks.sh --host ${TARGET%%:*#*} --user ${TARGET%@*}"
+echo "    bash run-benchmarks.sh --host ${hint_host} --user ${hint_user}"

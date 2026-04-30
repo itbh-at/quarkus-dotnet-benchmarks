@@ -28,7 +28,9 @@ scripts:
     - sh:
         command: mise --version
         ignore-exit-code: true
-    - regex: ".*command not found"
+    # Match both bash's plain "command not found" AND Ubuntu's command-not-found
+    # helper output ("Command 'mise' not found, but can be installed with:").
+    - regex: ".*(command not found|not found,? *but)"
       then:
         - log: Installing mise
         - sh: curl -fsSL https://mise.run | sh
@@ -36,11 +38,13 @@ scripts:
             - regex: "(mise: installed|mise installed successfully)"
               else:
                 - abort: failed to install mise
-        # Activate mise in shell startup so subsequent `sh:` invocations find it on PATH
+        # Activate mise in shell startup for future SSH sessions
         - sh: |
             grep -q 'mise activate bash' "$HOME/.bashrc" || \
             echo 'eval "$($HOME/.local/bin/mise activate bash)"' >> "$HOME/.bashrc"
-        - sh: source "$HOME/.bashrc"
+        # Put mise on PATH for the current qDup SSH session immediately —
+        # source ~/.bashrc may early-return in non-interactive shells.
+        - sh: export PATH="$HOME/.local/bin:$PATH"
       else:
         - log: Updating mise
         - sh: mise self-update -y

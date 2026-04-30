@@ -30,10 +30,10 @@ scripts:
     - sh: free -h | grep '^Mem:' | awk '{print $2}'
       then:
         - set-state: RUN.env.host.memory
-    - sh: lscpu -e > ${{REPO_DIR}}/logs/lscpu.txt
+    - sh: lscpu -e > ${{LOGS_DIR}}/lscpu.txt
       then:
-        - download: ${{REPO_DIR}}/logs/lscpu.txt
-        - sh: cat ${{REPO_DIR}}/logs/lscpu.txt
+        - download: ${{LOGS_DIR}}/lscpu.txt
+        - sh: cat ${{LOGS_DIR}}/lscpu.txt
 
   capture-system-info-macos:
     - script: check-and-install-package

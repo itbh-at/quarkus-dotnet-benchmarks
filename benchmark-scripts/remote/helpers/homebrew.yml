@@ -4,7 +4,7 @@ scripts:
     - sh:
         command: brew help
         ignore-exit-code: true
-    - regex: ".*command not found"
+    - regex: ".*(command not found|not found,? *but)"
       then:
         - script: install-homebrew
 

@@ -217,10 +217,16 @@ scripts:
       with:
         DIR: ${{RUNTIMECMD.dir}}
         VERSION: ${{RUNTIMECMD.updateVersion:}}
-    - log: "Downloading dependencies for ${{RUNTIMECMD.updateVersion:}}"
-    # Pre-download dependencies to exclude it from build time
-    # also to ensure any dependency resolution issues are caught before we start measuring build times
-    - sh: ./mvnw dependency:go-offline
+    # Pre-download dependencies to exclude it from build time and to surface
+    # dependency resolution issues before we start measuring build times.
+    # Maven-only — dotnet uses NuGet's own restore on first build.
+    - sh: cd ${{RUNTIMECMD.dir}}
+    - read-state: ${{RUNTIMECMD.type}}
+      then:
+        - regex: "^(jvm|native)$"
+          then:
+            - log: "Downloading dependencies for ${{RUNTIMECMD.name}}"
+            - sh: ./mvnw dependency:go-offline
 
   build-and-cache-runtime:
     - script: measure-build-times
