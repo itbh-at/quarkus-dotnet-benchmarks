@@ -69,7 +69,7 @@ states:
   PROFILER_JVM_ARGS:
   BASE_JAVA_CMD: ${{APP_CMD_PREFIX}} java ${{config.jvm.memory}} ${{config.jvm.args}} ${{PROFILER_JVM_ARGS}}
   TESTS : [measure-time-to-first-request, measure-rss, run-load-test]
-  RUNTIMES: [quarkus-jvm, quarkus-virtual, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef]
+  RUNTIMES: [quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef]
   TARGET_URL: http://localhost:8080/fruits
   QUARKUS-PLATFORM-ARTIFACT-ID: quarkus-bom
   METRICS_DIR: /tmp

@@ -86,7 +86,7 @@ help() {
   echo "                                                              NOTE: With rsync deployment, version updates happen locally — this flag only sets the qDup state value, no remote pom edit"
   echo "  --runtimes <RUNTIMES>                                   The runtimes to test, separated by commas"
   echo "                                                              Accepted values (1 or more of): quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef"
-  echo "                                                              Default: 'quarkus-jvm,quarkus-virtual,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
+  echo "                                                              Default: 'quarkus-jvm,quarkus-leyden,quarkus-virtual,quarkus-virtual-leyden,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
   echo "  --run-identifier <RUN_IDENTIFIER>                       An optional identifier for this run to be added to the run output"
   echo "  --scenario <SCENARIO>                                   The scenario to run"
   echo "                                                              Accepted values: tuned, ootb"
@@ -353,7 +353,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   QUARKUS_BUILD_CONFIG_ARGS=""
   QUARKUS_VERSION=""
   ALLOWED_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
-  DEFAULT_RUNTIMES=("quarkus-jvm" "quarkus-virtual" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
+  DEFAULT_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
   RUNTIMES=${DEFAULT_RUNTIMES[@]}
   ALLOWED_TESTS_TO_RUN=("measure-build-times" "measure-time-to-first-request" "measure-rss" "run-load-test")
   DEFAULT_TESTS_TO_RUN=("measure-time-to-first-request" "measure-rss" "run-load-test")
