@@ -9,11 +9,11 @@ dotnet, across multiple Java and dotnet runtime versions. **Forked** from
 
 ## Modules
 
-| Module                        | Framework                                       | Notes                                                    |
-| ----------------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| Module                        | Framework                                       | Notes                                                                 |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------------- |
 | `apps/quarkus-jvm/`           | Quarkus 3.x JVM mode                            | RESTEasy, Hibernate ORM Panache, OTel; `-Pnative` builds native image |
-| `apps/quarkus-virtual/`       | Quarkus 3.x virtual threads                     | JVM mode, virtual threads                                |
-| `apps/dotnet-core-aspnet-ef/` | ASP.NET Core Minimal API, Entity Framework Core | Npgsql/PostgreSQL, OTel                                  |
+| `apps/quarkus-virtual/`       | Quarkus 3.x virtual threads                     | JVM mode, virtual threads                                             |
+| `apps/dotnet-core-aspnet-ef/` | ASP.NET Core Minimal API, Entity Framework Core | Npgsql/PostgreSQL, OTel                                               |
 
 All modules share the same domain: `org.acme` (Java) / equivalent namespace
 (dotnet) with Fruit/Store/Address entities, DTOs, mappers, and a REST
@@ -37,6 +37,27 @@ mise exec dotnet@10 -- dotnet build apps/dotnet-core-aspnet-ef
 
 The Java build and run version is to be passed to the build process in
 accordance with the selected JVM version.
+
+## Runtime Version Management
+
+All runtimes managed via `mise` — versions are always explicit, never implied
+by a config file:
+
+```sh
+# Run Quarkus JVM with a specific Java version
+mise exec java@21 -- java -jar apps/quarkus-jvm/target/quarkus-app/quarkus-run.jar
+mise exec java@17 -- java -jar apps/quarkus-jvm/target/quarkus-app/quarkus-run.jar
+
+# Run Quarkus native (no JVM needed, binary is self-contained)
+apps/quarkus-jvm/target/quarkus-jvm-runner
+
+# Run dotnet with a specific runtime version
+mise exec dotnet@10 -- dotnet run --project apps/dotnet-core-aspnet-ef
+mise exec dotnet@8  -- dotnet run --project apps/dotnet-core-aspnet-ef
+```
+
+The benchmark scripts iterate over configured version lists and invoke each
+variant with `mise exec <runtime>@<version> --`.
 
 ## Infrastructure
 
