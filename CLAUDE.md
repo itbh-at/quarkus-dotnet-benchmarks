@@ -9,12 +9,11 @@ dotnet, across multiple Java and dotnet runtime versions. **Forked** from
 
 ## Modules
 
-| Module                  | Framework                   | Notes                                  |
-| ----------------------- | --------------------------- | -------------------------------------- |
-| `apps/quarkus-jvm/`     | Quarkus 3.x JVM mode        | RESTEasy, Hibernate ORM Panache        |
-| `apps/quarkus-native/`  | Quarkus 3.x native image    | GraalVM/Mandrel                        |
-| `apps/quarkus-virtual/` | Quarkus 3.x virtual threads | JVM mode, virtual threads              |
-| `apps/dotnet/`          | dotnet version              | Equivalent domain: Fruit/Store/Address |
+| Module                        | Framework                                       | Notes                                                    |
+| ----------------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| `apps/quarkus-jvm/`           | Quarkus 3.x JVM mode                            | RESTEasy, Hibernate ORM Panache, OTel; `-Pnative` builds native image |
+| `apps/quarkus-virtual/`       | Quarkus 3.x virtual threads                     | JVM mode, virtual threads                                |
+| `apps/dotnet-core-aspnet-ef/` | ASP.NET Core Minimal API, Entity Framework Core | Npgsql/PostgreSQL, OTel                                  |
 
 All modules share the same domain: `org.acme` (Java) / equivalent namespace
 (dotnet) with Fruit/Store/Address entities, DTOs, mappers, and a REST
@@ -29,25 +28,15 @@ are always explicit in scripts:
 # Quarkus (JVM)
 mise exec java@21 -- ./mvnw -Djava.version=21 -Dmaven.compiler.release=21 clean verify -pl apps/quarkus-jvm
 
-# Quarkus (native)
-mise exec java@21 -- ./mvnw -Djava.version=21 -Dmaven.compiler.release=21 clean verify -pl apps/quarkus-native -Pnative
+# Quarkus (native image, built from quarkus-jvm source)
+mise exec java@21 -- ./mvnw -Djava.version=21 -Dmaven.compiler.release=21 clean verify -pl apps/quarkus-jvm -Pnative
 
 # dotnet
-mise exec dotnet@10 -- dotnet build apps/dotnet-net10
+mise exec dotnet@10 -- dotnet build apps/dotnet-core-aspnet-ef
 ```
 
 The Java build and run version is to be passed to the build process in
 accordance with the selected JVM version.
-
-## Runtime Version Management
-
-All runtimes managed via `mise`. No `.mise.toml` or `.tool-versions` — versions
-are always explicit in scripts:
-
-```sh
-mise exec java@21 -- java -jar apps/quarkus-jvm/target/*.jar
-mise exec dotnet@10 -- dotnet run --project apps/dotnet-net10
-```
 
 ## Infrastructure
 
