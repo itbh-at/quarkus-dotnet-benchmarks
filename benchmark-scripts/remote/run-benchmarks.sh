@@ -2,13 +2,19 @@
 set -e
 
 help() {
-  echo "This script runs benchmarks."
-  echo "It assumes you have the following things installed on your machine:"
-  echo "  - git (https://github.com/git-guides/install-git)"
+  echo "Runs the qDup-orchestrated benchmark suite against a remote target."
+  echo
+  echo "Before invoking, deploy the working tree to the remote with:"
+  echo "    benchmark-scripts/local/deploy-to-remote.sh <user@host>"
+  echo
+  echo "Local-side prerequisites (this machine, where qDup runs):"
   echo "  - jbang (https://www.jbang.dev/download)"
   echo "  - jq (https://stedolan.github.io/jq)"
   echo
-  echo "IMPORTANT: You need to have enough cpus in order to run this script. We recommend 14 cpus minimum allocated as follows:"
+  echo "Remote-side prerequisites are installed automatically by the qDup"
+  echo "setup chain (mise, Java/dotnet, container runtime, etc.)."
+  echo
+  echo "IMPORTANT: The remote target needs ~14 CPUs minimum, allocated as:"
   echo "  - 4 CPUs for the application"
   echo "  - 3 CPUs for PostgreSQL"
   echo "  - 3 CPUs for the OpenTelemetry stack"
@@ -17,10 +23,8 @@ help() {
   echo "  - 1 CPU for the time to first request measurement"
   echo "      NOTE: This CPU can share one of the cpus from the load generator, since the TTFR & load measurements are not done at the same time."
   echo
-  echo "Using a tool like 'lscpu -e' can help you understand how many CPUs you have available and how best to allocate them."
+  echo "Using a tool like 'lscpu -e' on the remote can help you understand how many CPUs you have available and how best to allocate them."
   echo "  - Its important to avoid sharing physical cores between workloads and keep workloads on the same NUMA node when possible."
-  echo
-  echo "See https://github.com/quarkusio/spring-quarkus-perf-comparison/blob/main/scripts/perf-lab/README.md#usage for more information."
   echo
   echo "Syntax: run-benchmarks.sh [options]"
   echo "options:"
@@ -42,13 +46,13 @@ help() {
   echo "                                                              NOTE: This is an advanced option. Make sure you know what you are doing when using it."
   echo "  --graalvm-home <GRAALVM_HOME>                           Path to a locally installed GraalVM distribution"
   echo "                                                              If set, this takes precedence over --graalvm-version"
-  echo "  --graalvm-version <GRAALVM_VERSION>                     The GraalVM version to use for quarkus3-native (from SDKMAN)"
+  echo "  --graalvm-version <GRAALVM_VERSION>                     The GraalVM version to use for quarkus-native (mise syntax)"
   echo "                                                              Default: ${GRAALVM_VERSION}"
   echo "                                                              Ignored if --graalvm-home is set"
   echo "  --mandrel-home <MANDREL_HOME>                           Path to a locally installed Mandrel distribution"
   echo "                                                              If set, this takes precedence over --mandrel-version"
-  echo "  --mandrel-version <MANDREL_VERSION>                     The Mandrel version to use for quarkus3-native-mandrel (from SDKMAN)"
-  echo "                                                              Required when running quarkus3-native-mandrel"
+  echo "  --mandrel-version <MANDREL_VERSION>                     The Mandrel version to use for quarkus-native-mandrel (mise syntax)"
+  echo "                                                              Required when running quarkus-native-mandrel"
   echo "                                                              Default: ${MANDREL_VERSION}"
   echo "                                                              Ignored if --mandrel-home is set"
   echo "  --host <HOST>                                           The HOST to run the benchmarks on"
@@ -58,15 +62,18 @@ help() {
   echo "                                                              Default: ${ITERATIONS}"
   echo "  --java-home <JAVA_HOME>                                 Path to a locally installed Java distribution"
   echo "                                                              If set, this takes precedence over --java-version"
-  echo "  --java-version <JAVA_VERSION>                           The Java version to use (from SDKMAN)"
+  echo "  --java-version <JAVA_VERSION>                           The Java version to use (mise syntax)"
   echo "                                                              Default: ${JAVA_VERSION}"
   echo "                                                              Ignored if --java-home is set"
+  echo "  --dotnet-home <DOTNET_HOME>                             Path to a locally installed dotnet distribution"
+  echo "                                                              If set, this takes precedence over --dotnet-version"
+  echo "  --dotnet-version <DOTNET_VERSION>                       The dotnet version to use (mise syntax)"
+  echo "                                                              Default: ${DOTNET_VERSION}"
+  echo "                                                              Ignored if --dotnet-home is set"
   echo "  --jvm-args <JVM_ARGS>                                   Any runtime JVM args to be passed to the apps"
   echo "  --jvm-memory <JVM_MEMORY>                               JVM Memory setting (i.e. -Xmx -Xmn -Xms)"
   echo "                                                              Default: ${JVM_MEMORY}"
   echo "  --native-quarkus-build-options <NATIVE_QUARKUS_OPTS>    Native build options to be passed to Quarkus native build process"
-  echo "  --native-spring3-build-options <NATIVE_SPRING3_OPTS>    Native build options to be passed to Spring 3.x native build process"
-  echo "  --native-spring4-build-options <NATIVE_SPRING4_OPTS>    Native build options to be passed to Spring 4.x native build process"
   echo "  --output-dir <OUTPUT_DIR>                               The directory containing the run output"
   echo "                                                              Default: ${OUTPUT_DIR}"
   echo "  --profiler <PROFILER>                                   Enable profiling"
@@ -76,29 +83,16 @@ help() {
   echo "  --quarkus-build-config-args <QUARKUS_BUILD_CONFIG_ARGS> Quarkus app configuration properties fixed at build time"
   echo "  --quarkus-version <QUARKUS_VERSION>                     The Quarkus version to use"
   echo "                                                              Default: Whatever version is set in pom.xml of the Quarkus app"
-  echo "                                                              NOTE: Its a good practice to set this manually to ensure proper version"
-  echo "  --repo-branch <SCM_REPO_BRANCH>                         The branch in the SCM repo"
-  echo "                                                              Default: '${SCM_REPO_BRANCH}'"
-  echo "  --repo-url <SCM_REPO_URL>                               The SCM repo url"
-  echo "                                                              Default: '${SCM_REPO_URL}'"
+  echo "                                                              NOTE: With rsync deployment, version updates happen locally — this flag only sets the qDup state value, no remote pom edit"
   echo "  --runtimes <RUNTIMES>                                   The runtimes to test, separated by commas"
-  echo "                                                              Accepted values (1 or more of): quarkus3-jvm, quarkus3-leyden, quarkus3-virtual, quarkus3-virtual-leyden, quarkus3-native, spring3-jvm, spring3-leyden, spring3-virtual, spring3-virtual-leyden, spring3-jvm-aot, spring3-native, spring4-jvm, spring4-leyden, spring4-virtual, spring4-virtual-leyden, spring4-jvm-aot, spring4-native, dotnet10"
-  echo "                                                              Default: 'quarkus3-jvm,quarkus3-leyden,quarkus3-virtual,quarkus3-virtual-leyden,quarkus3-native,spring3-jvm,spring3-leyden,spring3-jvm-aot,spring3-virtual,spring3-virtual-leyden,spring3-native,spring4-jvm,spring4-leyden,spring4-virtual,spring4-virtual-leyden,spring4-jvm-aot,spring4-native,dotnet10'"
+  echo "                                                              Accepted values (1 or more of): quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef"
+  echo "                                                              Default: 'quarkus-jvm,quarkus-virtual,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
   echo "  --run-identifier <RUN_IDENTIFIER>                       An optional identifier for this run to be added to the run output"
   echo "  --scenario <SCENARIO>                                   The scenario to run"
   echo "                                                              Accepted values: tuned, ootb"
-  echo "                                                              Default: Depends on the value of --repo-branch"
-  echo "                                                                If --repo-branch == 'main', then default == 'tuned"
-  echo "                                                                If --repo-branch == 'ootb', then default == 'ootb"
-  echo "                                                                If --repo-branch == anything else, then default == 'tuned"
-  echo "                                                              'tuned' applies various performance tuning settings to the JVM and OS (generally from the 'main' branch)"
-  echo "                                                              'ootb' runs with out-of-the-box/default settings (generally from the 'ootb' branch)"
-  echo "  --springboot3-version <SPRING_BOOT3_VERSION>            The Spring Boot 3.x version to use"
-  echo "                                                              Default: Whatever version is set in pom.xml of the Spring Boot 3 app"
-  echo "                                                              NOTE: Its a good practice to set this manually to ensure proper version"
-  echo "  --springboot4-version <SPRING_BOOT4_VERSION>            The Spring Boot 4.x version to use"
-  echo "                                                              Default: Whatever version is set in pom.xml of the Spring Boot 4 app"
-  echo "                                                              NOTE: Its a good practice to set this manually to ensure proper version"
+  echo "                                                              Default: tuned"
+  echo "                                                              'tuned' applies various performance tuning settings to the JVM and OS"
+  echo "                                                              'ootb' runs with out-of-the-box/default settings"
   echo "  --tests <TESTS_TO_RUN>                                  The tests to run, separated by commas"
   echo "                                                              Accepted values (1 or more of): measure-build-times, measure-time-to-first-request, measure-rss, run-load-test"
   echo "                                                              Default: 'measure-time-to-first-request,measure-rss,run-load-test'"
@@ -154,22 +148,18 @@ print_values() {
   echo "  ITERATIONS: $ITERATIONS"
   echo "  JAVA_HOME: $JAVA_HOME"
   echo "  JAVA_VERSION: $JAVA_VERSION"
+  echo "  DOTNET_HOME: $DOTNET_HOME"
+  echo "  DOTNET_VERSION: $DOTNET_VERSION"
   echo "  NATIVE_QUARKUS_BUILD_OPTIONS: $NATIVE_QUARKUS_BUILD_OPTIONS"
-  echo "  NATIVE_SPRING3_BUILD_OPTIONS: $NATIVE_SPRING3_BUILD_OPTIONS"
-  echo "  NATIVE_SPRING4_BUILD_OPTIONS: $NATIVE_SPRING4_BUILD_OPTIONS"
   echo "  PROFILER: $PROFILER"
   echo "  QUARKUS_BUILD_CONFIG_ARGS: $QUARKUS_BUILD_CONFIG_ARGS"
   echo "  QUARKUS_VERSION: $QUARKUS_VERSION"
   echo "  RUNTIMES: ${RUNTIMES[@]}"
   echo "  SCENARIO: ${SCENARIO}"
-  echo "  SPRING_BOOT3_VERSION: $SPRING_BOOT3_VERSION"
-  echo "  SPRING_BOOT4_VERSION: $SPRING_BOOT4_VERSION"
   echo "  TESTS_TO_RUN: ${TESTS_TO_RUN[@]}"
   echo "  USER: $USER"
   echo "  JVM_MEMORY: $JVM_MEMORY"
   echo "  WAIT_TIME: $WAIT_TIME"
-  echo "  SCM_REPO_URL: $SCM_REPO_URL"
-  echo "  SCM_REPO_BRANCH: $SCM_REPO_BRANCH"
   echo "  DROP_OS_FILESYSTEM_CACHES: $DROP_OS_FILESYSTEM_CACHES"
   echo "  USE_CONTAINER_HOST_NETWORK: $USE_CONTAINER_HOST_NETWORK"
   echo "  JVM_ARGS: $JVM_ARGS"
@@ -268,14 +258,12 @@ setup_jbang() {
 }
 
 calculate_scenario() {
-  if [[ -n "$SCENARIO_SET_BY_USER" ]]; then
-    return  # User explicitly set the scenario, so we don't override it
-  fi
-
-  if [[ "$SCM_REPO_BRANCH" == "main" ]]; then
+  # Default scenario is 'tuned' unless the caller explicitly passed --scenario.
+  # Previously inferred from the SCM branch (main → tuned, ootb → ootb); with
+  # rsync deployment the branch concept is no longer remote-visible, so the
+  # caller must opt into 'ootb' explicitly.
+  if [[ -z "$SCENARIO_SET_BY_USER" ]]; then
     SCENARIO="tuned"
-  elif [[ "$SCM_REPO_BRANCH" == "ootb" ]]; then
-    SCENARIO="ootb"
   fi
 }
 
@@ -305,6 +293,8 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.0 \
     -S config.jvm.mandrel.version="${MANDREL_VERSION}" \
     -S config.jvm.home="${JAVA_HOME}" \
     -S config.jvm.version=${JAVA_VERSION} \
+    -S config.dotnet.home="${DOTNET_HOME}" \
+    -S config.dotnet.version=${DOTNET_VERSION} \
     -S config.quarkus.native_build_options="${NATIVE_QUARKUS_BUILD_OPTIONS}" \
     -S config.jvm.args="${JVM_ARGS}" \
     -S config.profiler.name=${PROFILER} \
@@ -315,17 +305,11 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.0 \
     -S config.resources.cpu.1st_request="${CPUS_FIRST_REQUEST}" \
     -S config.resources.cpu.monitor="${CPUS_MONITORING}" \
     -S config.resources.cpu.otel="${CPUS_OTEL}" \
-    -S config.springboot3.version=${SPRING_BOOT3_VERSION} \
-    -S config.springboot4.version=${SPRING_BOOT4_VERSION} \
     -S config.jvm.memory="${JVM_MEMORY}" \
     -S config.dotnet.gcHeapHardLimit="$(xmx_to_dotnet_gc_limit "${JVM_MEMORY}")" \
     -S config.quarkus.build_config_args="${QUARKUS_BUILD_CONFIG_ARGS}" \
     -S config.quarkus.version=${QUARKUS_VERSION} \
-    -S config.springboot3.native_build_options="${NATIVE_SPRING3_BUILD_OPTIONS}" \
-    -S config.springboot4.native_build_options="${NATIVE_SPRING4_BUILD_OPTIONS}" \
     -S config.profiler.events=cpu \
-    -S config.repo.branch=${SCM_REPO_BRANCH} \
-    -S config.repo.url=${SCM_REPO_URL} \
     -S config.repo.scenario=${SCENARIO} \
     -S config.run.description="${DESCRIPTION}" \
     -S config.run.identifier="${RUN_IDENTIFIER}" \
@@ -335,7 +319,6 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.0 \
     -S env.run.host.target=${target} \
     -S env.run.host.name=${HOST} \
     -S config.num_iterations=${ITERATIONS} \
-    -S PROJ_REPO_NAME="$(basename ${SCM_REPO_URL} .git)" \
     -S RUNTIMES="$(make_json_array $RUNTIMES)" \
     -S PAUSE_TIME=${WAIT_TIME} \
     -S TESTS="$(make_json_array $TESTS_TO_RUN)"
@@ -353,29 +336,25 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   CPUS_FIRST_REQUEST="10"
   DESCRIPTION=""
   RUN_IDENTIFIER=""
-  SCM_REPO_URL="https://github.com/quarkusio/spring-quarkus-perf-comparison.git"
-  SCM_REPO_BRANCH="main"
   SCENARIO="tuned"
   SCENARIO_SET_BY_USER=""
   GRAALVM_HOME=""
-  GRAALVM_VERSION="25.0.2-graalce"
+  GRAALVM_VERSION="graalvm-community-25.0.2"
   MANDREL_HOME=""
   MANDREL_VERSION=""
   HOST="LOCAL"
   ITERATIONS="3"
   JAVA_HOME=""
-  JAVA_VERSION="25.0.2-tem"
+  JAVA_VERSION="temurin-25.0.2"
+  DOTNET_HOME=""
+  DOTNET_VERSION="10.0.100"
   NATIVE_QUARKUS_BUILD_OPTIONS=""
-  NATIVE_SPRING3_BUILD_OPTIONS=""
-  NATIVE_SPRING4_BUILD_OPTIONS=""
   PROFILER="none"
   QUARKUS_BUILD_CONFIG_ARGS=""
   QUARKUS_VERSION=""
-  ALLOWED_RUNTIMES=("quarkus3-jvm" "quarkus3-leyden" "quarkus3-virtual" "quarkus3-virtual-leyden" "quarkus3-native" "quarkus3-native-mandrel" "spring3-jvm" "spring3-leyden" "spring3-virtual" "spring3-virtual-leyden" "spring3-jvm-aot" "spring3-native" "spring4-jvm" "spring4-leyden" "spring4-virtual" "spring4-virtual-leyden" "spring4-jvm-aot" "spring4-native" "dotnet10")
-  DEFAULT_RUNTIMES=("quarkus3-jvm" "quarkus3-leyden" "quarkus3-virtual" "quarkus3-virtual-leyden" "quarkus3-native" "spring3-jvm" "spring3-leyden" "spring3-virtual" "spring3-virtual-leyden" "spring3-native" "spring4-jvm" "spring4-leyden" "spring4-virtual" "spring4-virtual-leyden" "spring4-native" "dotnet10")
+  ALLOWED_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
+  DEFAULT_RUNTIMES=("quarkus-jvm" "quarkus-virtual" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
   RUNTIMES=${DEFAULT_RUNTIMES[@]}
-  SPRING_BOOT3_VERSION=""
-  SPRING_BOOT4_VERSION=""
   ALLOWED_TESTS_TO_RUN=("measure-build-times" "measure-time-to-first-request" "measure-rss" "run-load-test")
   DEFAULT_TESTS_TO_RUN=("measure-time-to-first-request" "measure-rss" "run-load-test")
   TESTS_TO_RUN=${DEFAULT_TESTS_TO_RUN[@]}
@@ -408,11 +387,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
       --jvm-args)
         JVM_ARGS="$2"
-        shift 2
-        ;;
-
-      --repo-branch)
-        SCM_REPO_BRANCH="$2"
         shift 2
         ;;
 
@@ -476,23 +450,18 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         shift 2
         ;;
 
-      --repo-url)
-        SCM_REPO_URL="$2"
+      --dotnet-home)
+        DOTNET_HOME="$2"
+        shift 2
+        ;;
+
+      --dotnet-version)
+        DOTNET_VERSION="$2"
         shift 2
         ;;
 
       --native-quarkus-build-options)
         NATIVE_QUARKUS_BUILD_OPTIONS="$2"
-        shift 2
-        ;;
-
-      --native-spring3-build-options)
-        NATIVE_SPRING3_BUILD_OPTIONS="$2"
-        shift 2
-        ;;
-
-      --native-spring4-build-options)
-        NATIVE_SPRING4_BUILD_OPTIONS="$2"
         shift 2
         ;;
 
@@ -538,16 +507,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
           echo "!! [ERROR] --scenario option must be one of (tuned, ootb)!!"
           exit_abnormal
         fi
-        shift 2
-        ;;
-
-      --springboot3-version)
-        SPRING_BOOT3_VERSION="$2"
-        shift 2
-        ;;
-
-      --springboot4-version)
-        SPRING_BOOT4_VERSION="$2"
         shift 2
         ;;
 

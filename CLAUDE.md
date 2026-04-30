@@ -87,22 +87,39 @@ cd benchmark-scripts/local
 
 ## Benchmark Scripts
 
-| Location                    | Purpose                             |
-| --------------------------- | ----------------------------------- |
-| `benchmark-scripts/local/`  | Run locally against localhost       |
-| `benchmark-scripts/remote/` | Rsync'd to remote target, run there |
+| Location                                       | Purpose                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `benchmark-scripts/local/`                     | Scripts that run on the local machine (infra, deployment, ad-hoc)      |
+| `benchmark-scripts/local/deploy-to-remote.sh`  | rsync the working tree to a remote target                              |
+| `benchmark-scripts/remote/run-benchmarks.sh`   | Launches qDup locally, which orchestrates the deployed remote          |
+| `benchmark-scripts/remote/main.yml + helpers/` | qDup orchestration consumed by `run-benchmarks.sh`                     |
 
-Deploy to remote:
+### Deploy + run workflow
+
+The remote never pulls from git. Local edits are pushed via rsync and qDup
+orchestrates execution over SSH.
 
 ```sh
-rsync -avz benchmark-scripts/remote/ user@remote-target:/opt/benchmarks/scripts/
+# 1. Deploy the working tree (apps + scripts + RUN_INFO).
+#    Target defaults to ~/quarkus-dotnet-benchmarks if no path specified.
+benchmark-scripts/local/deploy-to-remote.sh perf@perf-lab.example.com
+
+# 2. Trigger a benchmark run. qDup runs locally, drives the remote via SSH.
+cd benchmark-scripts/remote
+bash run-benchmarks.sh \
+  --host perf-lab.example.com \
+  --user perf \
+  --runtimes quarkus-jvm,quarkus-native,dotnet-aspnet-ef \
+  --iterations 3
 ```
 
-Run on remote:
+**Iterating on yml/script changes:** edit locally, rerun
+`deploy-to-remote.sh`, rerun `run-benchmarks.sh`. The `--delete` flag on rsync
+keeps the remote tree in lockstep with local; transient artifacts (`logs/`,
+`builds/`) on the remote are preserved across redeploys.
 
-```sh
-bash /opt/benchmarks/scripts/run-full-benchmark.sh
-```
+**HOST=LOCAL:** to run everything on the local machine (qDup self-targets via
+SSH on `127.0.0.1`), pass `--host LOCAL`. No deploy needed in that case.
 
 ## Data Flow
 
