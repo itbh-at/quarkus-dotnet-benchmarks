@@ -222,10 +222,19 @@ public class GenerateReport implements Callable<Integer> {
 
         CategoryPlot plot = chart.getCategoryPlot();
         StatisticalBarRenderer renderer = new StatisticalBarRenderer();
+        // Soft blue bars; the default red was visually loud. Error bars
+        // stay dark grey for contrast.
+        renderer.setSeriesPaint(0, new java.awt.Color(0x7F, 0xA8, 0xC8));         // pastel blue
+        renderer.setSeriesOutlinePaint(0, new java.awt.Color(0x44, 0x6B, 0x8C));  // muted edge
+        renderer.setDrawBarOutline(true);
         renderer.setErrorIndicatorPaint(java.awt.Color.DARK_GRAY);
+        renderer.setShadowVisible(false);
         renderer.setIncludeBaseInRange(true);
         plot.setRenderer(renderer);
         plot.setDataset(ds);
+        plot.setBackgroundPaint(java.awt.Color.WHITE);
+        plot.setRangeGridlinePaint(new java.awt.Color(0xE0, 0xE0, 0xE0));
+        chart.setBackgroundPaint(java.awt.Color.WHITE);
 
         CategoryAxis xAxis = plot.getDomainAxis();
         xAxis.setCategoryLabelPositions(CategoryLabelPositions.UP_45);
@@ -353,6 +362,22 @@ public class GenerateReport implements Callable<Integer> {
         }
         sb.append("</div>\n");
 
+        // ── dotnet vs others comparison ──
+        // Per-runtime "dotnet vs the JVM family" comparison tables. We
+        // identify dotnet variants by name prefix, which works for the
+        // current `dotnet-aspnet-ef` variant and any future ones we add
+        // (`dotnet-aot-...`, `dotnet-jit-...`, etc).
+        List<String> dotnetRts = runtimes.stream().filter(r -> r.startsWith("dotnet")).toList();
+        List<String> jvmFamilyRts = runtimes.stream().filter(r -> !r.startsWith("dotnet")).toList();
+        if (!dotnetRts.isEmpty() && !jvmFamilyRts.isEmpty()) {
+            sb.append("<h2>dotnet vs Quarkus comparison</h2>\n");
+            sb.append("<p class=\"hint\">For each dotnet variant, every metric is shown alongside the same metric from each Quarkus variant. " +
+                      "The ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number for that metric, below 1× means dotnet did.</p>\n");
+            for (String dotnetRt : dotnetRts) {
+                renderDotnetVsJvmTable(sb, dotnetRt, jvmFamilyRts, stats);
+            }
+        }
+
         // ── Per-iteration raw values ──
         sb.append("<details><summary>Per-iteration raw values</summary>\n");
         sb.append("<div class=\"scroll\"><table class=\"raw\">\n<thead><tr><th>Runtime</th><th>Metric</th>");
@@ -383,6 +408,58 @@ public class GenerateReport implements Callable<Integer> {
           .append(esc(Paths.get(dbPath).toAbsolutePath().toString())).append("</code></footer>\n");
         sb.append("</body></html>\n");
         return sb.toString();
+    }
+
+    /**
+     * Renders one comparison table: rows are metrics, columns are
+     * (dotnet baseline, then every JVM-family runtime with its raw value
+     * and the quarkus/dotnet ratio).
+     */
+    void renderDotnetVsJvmTable(StringBuilder sb, String dotnetRt, List<String> jvmRts,
+                                Map<String, Map<String, MetricStats>> stats) {
+        sb.append("<h3>").append(esc(dotnetRt)).append(" vs Quarkus variants</h3>\n");
+        sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
+        sb.append("<thead><tr><th rowspan=\"2\">Metric</th><th rowspan=\"2\">").append(esc(dotnetRt)).append("</th>");
+        for (String jvmRt : jvmRts) {
+            sb.append("<th colspan=\"2\">").append(esc(jvmRt)).append("</th>");
+        }
+        sb.append("</tr><tr>");
+        for (int j = 0; j < jvmRts.size(); j++) sb.append("<th>value</th><th>ratio</th>");
+        sb.append("</tr></thead>\n<tbody>\n");
+
+        for (MetricDef md : METRICS) {
+            MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
+            sb.append("<tr><th class=\"metric\">").append(esc(md.label))
+              .append(" <span class=\"unit\">(").append(esc(md.unit)).append(")</span></th>");
+            // dotnet baseline cell
+            sb.append("<td>").append(formatBaseline(baseline, md.decimals)).append("</td>");
+            // jvm cells
+            for (String jvmRt : jvmRts) {
+                MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
+                sb.append("<td>").append(formatBaseline(other, md.decimals)).append("</td>");
+                sb.append("<td>").append(formatRatio(baseline, other)).append("</td>");
+            }
+            sb.append("</tr>\n");
+        }
+        sb.append("</tbody></table></div>\n");
+    }
+
+    /** Mean rounded to the metric's decimals; em-dash for missing data. */
+    static String formatBaseline(MetricStats s, int decimals) {
+        if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
+        return fmtDouble(s.mean, decimals);
+    }
+
+    /** Pretty-print other.mean / baseline.mean with a × suffix. */
+    static String formatRatio(MetricStats baseline, MetricStats other) {
+        if (baseline == null || other == null) return "<span class=\"na\">—</span>";
+        if (baseline.n == 0 || other.n == 0) return "<span class=\"na\">—</span>";
+        if (Double.isNaN(baseline.mean) || Double.isNaN(other.mean)) return "<span class=\"na\">—</span>";
+        if (baseline.mean == 0) return "<span class=\"na\">—</span>";
+        double ratio = other.mean / baseline.mean;
+        // 3 decimals when sub-unit, 2 when modest, 1 when large.
+        int d = ratio < 1 ? 3 : (ratio < 10 ? 2 : 1);
+        return fmtDouble(ratio, d) + "×";
     }
 
     void appendMeta(StringBuilder sb, String label, Object value) {
@@ -468,10 +545,17 @@ public class GenerateReport implements Callable<Integer> {
                             color: #888; font-weight: 500; white-space: nowrap; }
           section.meta td { padding: 0.1rem 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; }
           .scroll { overflow-x: auto; }
-          table.summary, table.raw { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92em; }
-          table.summary th, table.summary td, table.raw th, table.raw td {
+          table.summary, table.raw, table.compare { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92em; }
+          table.summary th, table.summary td, table.raw th, table.raw td,
+          table.compare th, table.compare td {
               padding: 0.35rem 0.6rem; text-align: right; border-bottom: 1px solid #8884;
           }
+          table.compare thead tr:first-child th { border-bottom: none; padding-bottom: 0.1rem; }
+          table.compare thead tr:nth-child(2) th { font-weight: 400; color: #888; font-size: 0.85em; padding-top: 0; }
+          table.compare th.metric { text-align: left; font-weight: 500; white-space: nowrap; }
+          table.compare th.metric .unit { color: #888; }
+          table.compare tbody td:nth-child(2) { background: #7fa8c81a; }
+          h3 { margin-top: 1.5rem; margin-bottom: 0.4rem; font-size: 1.05em; color: #555; }
           table.summary caption { caption-side: top; text-align: left;
               padding: 0.25rem 0; color: #888; font-size: 0.9em; font-style: italic; }
           table.summary thead th { text-align: center; vertical-align: bottom; }
