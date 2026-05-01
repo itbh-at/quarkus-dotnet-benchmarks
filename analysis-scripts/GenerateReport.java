@@ -357,6 +357,16 @@ public class GenerateReport implements Callable<Integer> {
             }
         }
 
+        // ── Native closed-world analysis ──
+        // Statistics emitted by GraalVM/Mandrel native-image during
+        // build-time reachability analysis. Reflects the closed-world
+        // assumption: anything not reached at build time isn't in the
+        // binary, and dynamic features (reflection, JNI, resources)
+        // must be explicitly registered.
+        if (!nativeRts.isEmpty()) {
+            renderNativeClosedWorldSection(sb, nativeRts, stats);
+        }
+
         // ── Per-runtime summary ──
         sb.append("<h2>Per-runtime summary</h2>\n");
         sb.append("<p class=\"hint\">Cells show mean ± sample standard deviation across iterations.</p>\n");
@@ -521,6 +531,74 @@ public class GenerateReport implements Callable<Integer> {
             sb.append("</tr>\n");
         }
         sb.append("</tbody></table></div>\n");
+    }
+
+    /**
+     * Renders the closed-world analysis output from GraalVM/Mandrel
+     * native-image: binary size, reachable types/fields/methods, the
+     * subset of those registered for reflection (with percentage of
+     * total), and the build-time peak RSS.
+     */
+    void renderNativeClosedWorldSection(StringBuilder sb, List<String> nativeRts,
+                                        Map<String, Map<String, MetricStats>> stats) {
+        sb.append("<h2>Native closed-world analysis</h2>\n");
+        sb.append("<p class=\"hint\">Output of GraalVM/Mandrel native-image's build-time reachability analysis. " +
+                  "Under the closed-world assumption only types/fields/methods reached at build time end up in the binary; " +
+                  "anything dynamic (reflection, JNI, resources) must be explicitly registered. " +
+                  "The reflection columns show registered count and as a percentage of total reachable.</p>\n");
+        sb.append("<div class=\"scroll\"><table class=\"native-stats\">\n");
+        sb.append("<thead><tr>")
+          .append("<th>Runtime</th>")
+          .append("<th>Binary size<br><span class=\"unit\">MiB</span></th>")
+          .append("<th>Build RSS<br><span class=\"unit\">GiB</span></th>")
+          .append("<th>Classes reachable</th>")
+          .append("<th>Fields reachable</th>")
+          .append("<th>Methods reachable</th>")
+          .append("<th>Classes registered<br>for reflection</th>")
+          .append("<th>Fields registered<br>for reflection</th>")
+          .append("<th>Methods registered<br>for reflection</th>")
+          .append("</tr></thead>\n<tbody>\n");
+
+        for (String r : nativeRts) {
+            Map<String, MetricStats> m = stats.getOrDefault(r, Map.of());
+            MetricStats binSize    = m.get("native_binary_size_mib");
+            MetricStats buildRss   = m.get("native_build_rss_gib");
+            MetricStats classes    = m.get("native_classes_reachable");
+            MetricStats fields     = m.get("native_fields_reachable");
+            MetricStats methods    = m.get("native_methods_reachable");
+            MetricStats refClasses = m.get("native_reflection_classes");
+            MetricStats refFields  = m.get("native_reflection_fields");
+            MetricStats refMethods = m.get("native_reflection_methods");
+
+            sb.append("<tr><th class=\"rt\">").append(esc(r)).append("</th>")
+              .append("<td>").append(formatBaseline(binSize, 1)).append("</td>")
+              .append("<td>").append(formatBaseline(buildRss, 2)).append("</td>")
+              .append("<td>").append(formatCount(classes)).append("</td>")
+              .append("<td>").append(formatCount(fields)).append("</td>")
+              .append("<td>").append(formatCount(methods)).append("</td>")
+              .append("<td>").append(formatCountPct(refClasses, classes)).append("</td>")
+              .append("<td>").append(formatCountPct(refFields, fields)).append("</td>")
+              .append("<td>").append(formatCountPct(refMethods, methods)).append("</td>")
+              .append("</tr>\n");
+        }
+        sb.append("</tbody></table></div>\n");
+    }
+
+    static String formatCount(MetricStats s) {
+        if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
+        return String.format(Locale.ROOT, "%,d", (long) s.mean);
+    }
+
+    static String formatCountPct(MetricStats subset, MetricStats total) {
+        if (subset == null || subset.n == 0 || Double.isNaN(subset.mean))
+            return "<span class=\"na\">—</span>";
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(Locale.ROOT, "%,d", (long) subset.mean));
+        if (total != null && total.n > 0 && !Double.isNaN(total.mean) && total.mean > 0) {
+            double pct = 100.0 * subset.mean / total.mean;
+            sb.append(" <span class=\"pct\">(").append(String.format(Locale.ROOT, "%.1f", pct)).append("%)</span>");
+        }
+        return sb.toString();
     }
 
     /** What the per-row determination resolves to within a category. */
@@ -776,11 +854,17 @@ public class GenerateReport implements Callable<Integer> {
                             color: #888; font-weight: 500; white-space: nowrap; }
           section.meta td { padding: 0.1rem 0; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; }
           .scroll { overflow-x: auto; }
-          table.summary, table.raw, table.compare { border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92em; }
+          table.summary, table.raw, table.compare, table.native-stats {
+              border-collapse: collapse; margin: 0.5rem 0; font-size: 0.92em;
+          }
           table.summary th, table.summary td, table.raw th, table.raw td,
-          table.compare th, table.compare td {
+          table.compare th, table.compare td,
+          table.native-stats th, table.native-stats td {
               padding: 0.35rem 0.6rem; text-align: right; border-bottom: 1px solid #8884;
           }
+          table.native-stats th.rt { text-align: left; font-family: ui-monospace, monospace; }
+          table.native-stats thead th { text-align: center; vertical-align: bottom; }
+          table.native-stats .pct { color: #888; font-size: 0.85em; }
           table.compare thead tr:first-child th { border-bottom: none; padding-bottom: 0.1rem; }
           table.compare thead tr:nth-child(2) th { font-weight: 400; color: #888; font-size: 0.85em; padding-top: 0; }
           table.compare th.metric { text-align: left; font-weight: 500; white-space: nowrap; }

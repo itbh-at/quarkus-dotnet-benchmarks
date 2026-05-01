@@ -386,9 +386,70 @@ public class ImportBenchmark implements Callable<Integer> {
                         "load_connection_errors", "count");
                 total += addArray(ps, runId, runtime, r.path("load").path("requestTimeouts"),
                         "load_request_timeouts", "count");
+
+                // Native closed-world analysis stats — only present for
+                // native runtimes (graalvm/mandrel). The native-image tool
+                // emits these from its build-time reachability analysis.
+                JsonNode build = r.path("build");
+                JsonNode nat   = build.path("native");
+                total += addArray(ps, runId, runtime, nat.path("rss"),
+                        "native_build_rss_gib", "GiB");
+                total += addScalar(ps, runId, runtime, nat.path("binarySize"),
+                        "native_binary_size_mib", "MiB");
+                // These are emitted as comma-formatted strings ("27,587"), so
+                // strip commas before parsing.
+                total += addScalarFromString(ps, runId, runtime, build.path("classCount"),
+                        "native_classes_reachable", "count");
+                total += addScalarFromString(ps, runId, runtime, build.path("fieldCount"),
+                        "native_fields_reachable", "count");
+                total += addScalarFromString(ps, runId, runtime, build.path("methodCount"),
+                        "native_methods_reachable", "count");
+                total += addScalarFromString(ps, runId, runtime, build.path("reflectionClassCount"),
+                        "native_reflection_classes", "count");
+                total += addScalarFromString(ps, runId, runtime, build.path("reflectionFieldCount"),
+                        "native_reflection_fields", "count");
+                total += addScalarFromString(ps, runId, runtime, build.path("reflectionMethodCount"),
+                        "native_reflection_methods", "count");
             }
         }
         return total;
+    }
+
+    /** Insert a single iteration-0 row from a numeric scalar JSON value. */
+    int addScalar(PreparedStatement ps, long runId, String runtime, JsonNode v,
+                  String metric, String unit) throws SQLException {
+        if (v == null || v.isMissingNode() || v.isNull()) return 0;
+        if (!v.isNumber()) return 0;
+        ps.setLong(1, runId);
+        ps.setString(2, runtime);
+        ps.setInt(3, 0);
+        ps.setString(4, metric);
+        ps.setDouble(5, v.asDouble());
+        ps.setString(6, unit);
+        ps.executeUpdate();
+        return 1;
+    }
+
+    /** Insert a single iteration-0 row from a numeric string (commas stripped). */
+    int addScalarFromString(PreparedStatement ps, long runId, String runtime, JsonNode v,
+                            String metric, String unit) throws SQLException {
+        if (v == null || v.isMissingNode() || v.isNull()) return 0;
+        String s = v.asText();
+        if (s == null || s.isEmpty()) return 0;
+        double d;
+        try {
+            d = Double.parseDouble(s.replace(",", ""));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+        ps.setLong(1, runId);
+        ps.setString(2, runtime);
+        ps.setInt(3, 0);
+        ps.setString(4, metric);
+        ps.setDouble(5, d);
+        ps.setString(6, unit);
+        ps.executeUpdate();
+        return 1;
     }
 
     /** Insert one row per array element using the array index as iteration. */
