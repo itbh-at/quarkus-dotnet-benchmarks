@@ -63,19 +63,34 @@ cd "${REPO_ROOT}"
 # --- Generate RUN_INFO -------------------------------------------------------
 # capture-repo-info on the remote reads this file. With rsync deployment there
 # is no .git on the target, so we capture commit metadata locally.
+#
+# Deliberately *not* captured: hostname, username, or any path under /Users.
+# That data has no analytical value (we don't compare runs on developer-machine
+# identity) and only adds risk of leaking PII into committed SQL dumps and
+# shared reports. An opaque UUID identifies the run instead.
 RUN_INFO_FILE="$(mktemp)"
 trap 'rm -f "${RUN_INFO_FILE}"' EXIT
 
 dirty=false
 git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null || dirty=true
 
+# uuidgen exists on macOS and most Linux distros; fall back to /proc on Linux,
+# and to a deterministic openssl rand on systems lacking both.
+if command -v uuidgen >/dev/null 2>&1; then
+  run_id=$(uuidgen | tr '[:upper:]' '[:lower:]')
+elif [ -r /proc/sys/kernel/random/uuid ]; then
+  run_id=$(cat /proc/sys/kernel/random/uuid)
+else
+  run_id=$(openssl rand -hex 16 | sed 's/\(........\)\(....\)\(....\)\(....\)\(.*\)/\1-\2-\3-\4-\5/')
+fi
+
 cat > "${RUN_INFO_FILE}" <<EOF
+run_id: ${run_id}
 commit: $(git rev-parse HEAD)
 short_commit: $(git rev-parse --short HEAD)
 branch: $(git rev-parse --abbrev-ref HEAD)
 dirty: ${dirty}
 deployed_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-deployed_from: $(hostname)
 EOF
 
 # --- Rsync -------------------------------------------------------------------

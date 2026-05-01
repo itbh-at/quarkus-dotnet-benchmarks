@@ -155,6 +155,9 @@ scripts:
     - set-state: RUN.LOGS_DIR ${{PROJ_REPO_DIR}}/logs
     - set-state: RUN.BUILDS_DIR ${{PROJ_REPO_DIR}}/builds
     - set-state: RUN.ASYNC_PROFILER_DIR ${{BASE_DIR}}/${{ASYNC_PROFILER}}
+    # Surface the test scope into the metrics output so a comparison query
+    # can distinguish "TTFR-only run" from "all 3 tests" runs after the fact.
+    - set-state: RUN.config.tests ${{TESTS}}
 
   output-vars:
     - log: |
@@ -171,7 +174,8 @@ scripts:
 
   # Captures repo metadata for the run record. With rsync deployment there is
   # no .git on the remote, so commit info is read from a RUN_INFO file written
-  # by the deploy script. The file is optional — if missing, info stays unset.
+  # by the deploy script. The file is optional — if missing, the captures
+  # below silently set their state to empty strings.
   capture-repo-info:
     - sh: |
         if [ -f "${{PROJ_REPO_DIR}}/RUN_INFO" ]; then
@@ -179,6 +183,26 @@ scripts:
         else
           echo "RUN_INFO file not present"
         fi
+    # Parse RUN_INFO line-by-line into RUN.config.repo.* state vars so the
+    # values flow through download-metrics into metrics.json.
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^commit: '         ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.commit>[0-9a-f]+)"
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^short_commit: '   ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.short_commit>[0-9a-f]+)"
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^branch: '         ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.branch>[\\w./+-]+)"
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^dirty: '          ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.dirty>true|false)"
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^deployed_at: '    ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.deployed_at>[0-9TZ:-]+)"
+    - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^run_id: '         ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
+      then:
+        - regex: "(?<RUN.config.repo.run_id>[0-9a-f-]+)"
     - read-state: ${{config.repo.scenario}}
       then:
         - regex: ootb
