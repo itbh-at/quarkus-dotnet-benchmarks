@@ -330,17 +330,30 @@ public class GenerateReport implements Callable<Integer> {
 
         // ── dotnet vs Quarkus comparison (top of report) ──
         // Headline output: identifies which side wins each metric and by
-        // how much, so it's the first thing the reader sees.
-        List<String> dotnetRts = runtimes.stream().filter(r -> r.startsWith("dotnet")).toList();
+        // how much, so it's the first thing the reader sees. Split by
+        // execution model — JVM-mode and native each compete against
+        // dotnet on different terms (JIT vs AOT) so a single combined
+        // table would muddle the story.
+        List<String> dotnetRts    = runtimes.stream().filter(r -> r.startsWith("dotnet")).toList();
         List<String> jvmFamilyRts = runtimes.stream().filter(r -> !r.startsWith("dotnet")).toList();
+        List<String> jvmModeRts   = jvmFamilyRts.stream().filter(r -> !r.contains("native")).toList();
+        List<String> nativeRts    = jvmFamilyRts.stream().filter(r ->  r.contains("native")).toList();
+
         if (!dotnetRts.isEmpty() && !jvmFamilyRts.isEmpty()) {
             sb.append("<h2>dotnet vs Quarkus comparison</h2>\n");
-            sb.append("<p class=\"hint\">For each dotnet variant, every metric is shown alongside the same metric from each Quarkus variant. " +
-                      "The ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number for that metric, below 1× means dotnet did. " +
-                      "<span class=\"win-key\">Green</span> marks the winning side per metric. " +
-                      "<span class=\"over-key\">Red</span> marks RSS values that exceed the runtime's configured memory budget.</p>\n");
+            sb.append("<p class=\"hint\">Per metric, the ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number, below 1× means dotnet did. " +
+                      "<span class=\"win-key\">Green</span> marks the per-row winner within each category. " +
+                      "<span class=\"over-key\">Red</span> marks RSS values that exceed the runtime's configured memory budget. " +
+                      "The overall category winner is decided by an importance-weighted score: more important metrics " +
+                      "(in row order, top first) outweigh less important ones, so the leading metric outweighs every other combined.</p>\n");
+
             for (String dotnetRt : dotnetRts) {
-                renderDotnetVsJvmTable(sb, dotnetRt, jvmFamilyRts, stats, budgetMib);
+                if (!jvmModeRts.isEmpty()) {
+                    renderCategorySection(sb, dotnetRt, "JVM-mode", jvmModeRts, stats, budgetMib);
+                }
+                if (!nativeRts.isEmpty()) {
+                    renderCategorySection(sb, dotnetRt, "Native", nativeRts, stats, budgetMib);
+                }
             }
         }
 
@@ -420,14 +433,53 @@ public class GenerateReport implements Callable<Integer> {
     }
 
     /**
-     * Renders one comparison table: rows are metrics, columns are
-     * (dotnet baseline, then every JVM-family runtime with its raw value
-     * and the quarkus/dotnet ratio).
+     * Renders one category subsection: a banner with the overall winner
+     * and the existing pair-wise comparison table for that category's
+     * Quarkus variants.
      */
-    void renderDotnetVsJvmTable(StringBuilder sb, String dotnetRt, List<String> jvmRts,
-                                Map<String, Map<String, MetricStats>> stats,
-                                Map<String, Double> budgetMib) {
-        sb.append("<h3>").append(esc(dotnetRt)).append(" vs Quarkus variants</h3>\n");
+    void renderCategorySection(StringBuilder sb, String dotnetRt, String categoryLabel,
+                               List<String> jvmRts,
+                               Map<String, Map<String, MetricStats>> stats,
+                               Map<String, Double> budgetMib) {
+        CategoryResult cat = computeCategoryWinner(dotnetRt, jvmRts, stats);
+
+        sb.append("<h3>").append(esc(dotnetRt)).append(" vs ").append(esc(categoryLabel))
+          .append(" Quarkus variants</h3>\n");
+
+        // Banner with overall winner and per-side metric counts. Side
+        // label "Quarkus (JVM-mode)" or "Quarkus (Native)" rather than
+        // a single runtime name — the side is the category, not a
+        // specific runtime.
+        String otherSideLabel = "Quarkus (" + categoryLabel + ")";
+        sb.append("<p class=\"verdict ");
+        if (cat.winnerSide == WinnerSide.DOTNET) sb.append("verdict-dotnet");
+        else if (cat.winnerSide == WinnerSide.OTHER) sb.append("verdict-other");
+        else sb.append("verdict-tie");
+        sb.append("\">Overall winner: <strong>");
+        sb.append(switch (cat.winnerSide) {
+            case DOTNET -> esc(dotnetRt);
+            case OTHER  -> esc(otherSideLabel);
+            case TIE    -> "tied";
+        });
+        sb.append("</strong>");
+        sb.append(" <span class=\"verdict-detail\">(metric wins: ")
+          .append(esc(dotnetRt)).append("=").append(cat.dotnetWins)
+          .append(", ").append(esc(otherSideLabel)).append("=").append(cat.otherWins);
+        if (cat.ties > 0) sb.append(", ties=").append(cat.ties);
+        sb.append("; tiebreaker: ");
+        sb.append(cat.tiebreakerMetric == null ? "none — fully tied" : esc(cat.tiebreakerMetric));
+        sb.append(")</span></p>\n");
+
+        renderCompareTable(sb, dotnetRt, jvmRts, stats, budgetMib);
+    }
+
+    /**
+     * The actual rows-of-metrics × columns-of-runtimes table.
+     * Pulled out of renderCategorySection so the table layout is shared.
+     */
+    void renderCompareTable(StringBuilder sb, String dotnetRt, List<String> jvmRts,
+                            Map<String, Map<String, MetricStats>> stats,
+                            Map<String, Double> budgetMib) {
         sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
         sb.append("<thead><tr><th rowspan=\"2\">Metric</th><th rowspan=\"2\" class=\"baseline\">")
           .append(esc(dotnetRt)).append("</th>");
@@ -469,6 +521,76 @@ public class GenerateReport implements Callable<Integer> {
             sb.append("</tr>\n");
         }
         sb.append("</tbody></table></div>\n");
+    }
+
+    /** What the per-row determination resolves to within a category. */
+    enum WinnerSide { DOTNET, OTHER, TIE }
+
+    record CategoryResult(WinnerSide winnerSide, int dotnetWins, int otherWins, int ties,
+                          String tiebreakerMetric) {}
+
+    /**
+     * Computes the overall winner for one (dotnet, otherSide) category.
+     *
+     * For each metric, the better side wins (per `lowerIsBetter`); the side
+     * is "dotnet" if its mean beats the best-of-other-side, "other" if any
+     * member of the other side beats dotnet, "tie" if equal. Wins are
+     * importance-weighted with weight 2^(N-1-i) where i is the metric's
+     * position in METRICS (top metric is biggest); the resulting score
+     * outweighs every later metric combined, so the ranking is effectively
+     * lexicographic in the order of importance.
+     *
+     * `tiebreakerMetric` is the label of the first metric whose winner side
+     * matches the overall winner — i.e. the metric that broke the tie.
+     */
+    static CategoryResult computeCategoryWinner(String dotnetRt, List<String> otherRts,
+                                                Map<String, Map<String, MetricStats>> stats) {
+        int dotnetWins = 0, otherWins = 0, ties = 0;
+        long dotnetScore = 0L, otherScore = 0L;
+        String firstMetricDotnetWon = null;
+        String firstMetricOtherWon  = null;
+
+        for (int i = 0; i < METRICS.size(); i++) {
+            MetricDef md = METRICS.get(i);
+            long weight = 1L << (METRICS.size() - 1 - i); // 2^(N-1-i)
+
+            MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
+            // Best mean among the other side for this metric.
+            Double otherBest = null;
+            for (String r : otherRts) {
+                MetricStats s = stats.getOrDefault(r, Map.of()).get(md.name);
+                if (s == null || s.n == 0 || Double.isNaN(s.mean)) continue;
+                if (otherBest == null) otherBest = s.mean;
+                else otherBest = md.lowerIsBetter ? Math.min(otherBest, s.mean) : Math.max(otherBest, s.mean);
+            }
+            boolean dotnetHas = baseline != null && baseline.n > 0 && !Double.isNaN(baseline.mean);
+            if (!dotnetHas && otherBest == null) continue; // metric has no data anywhere
+            if (!dotnetHas) { otherWins++; otherScore += weight; if (firstMetricOtherWon == null) firstMetricOtherWon = md.label; continue; }
+            if (otherBest == null) { dotnetWins++; dotnetScore += weight; if (firstMetricDotnetWon == null) firstMetricDotnetWon = md.label; continue; }
+            if (baseline.mean == otherBest) { ties++; continue; }
+            boolean dotnetBetter = md.lowerIsBetter ? baseline.mean < otherBest : baseline.mean > otherBest;
+            if (dotnetBetter) {
+                dotnetWins++; dotnetScore += weight;
+                if (firstMetricDotnetWon == null) firstMetricDotnetWon = md.label;
+            } else {
+                otherWins++; otherScore += weight;
+                if (firstMetricOtherWon == null) firstMetricOtherWon = md.label;
+            }
+        }
+
+        WinnerSide winner;
+        String tiebreaker;
+        if (dotnetScore > otherScore) {
+            winner = WinnerSide.DOTNET;
+            tiebreaker = firstMetricDotnetWon;
+        } else if (otherScore > dotnetScore) {
+            winner = WinnerSide.OTHER;
+            tiebreaker = firstMetricOtherWon;
+        } else {
+            winner = WinnerSide.TIE;
+            tiebreaker = null;
+        }
+        return new CategoryResult(winner, dotnetWins, otherWins, ties, tiebreaker);
     }
 
     /**
@@ -690,6 +812,11 @@ public class GenerateReport implements Callable<Integer> {
           }
           .win-key { background: #B8E0BA; color: #1a4d1f; padding: 0 0.3em; border-radius: 3px; }
           .over-key { background: #F7C8C8; color: #6b1f1f; padding: 0 0.3em; border-radius: 3px; }
+          .verdict { margin: 0.4rem 0 0.6rem 0; padding: 0.5rem 0.8rem; border-radius: 4px; }
+          .verdict-dotnet { background: #B8E0BA40; border-left: 3px solid #4a9b50; }
+          .verdict-other  { background: #C8D8F040; border-left: 3px solid #4a6b9b; }
+          .verdict-tie    { background: #8884; border-left: 3px solid #888; }
+          .verdict-detail { color: #888; font-size: 0.88em; font-weight: normal; }
           h3 { margin-top: 1.5rem; margin-bottom: 0.4rem; font-size: 1.05em; color: #555; }
           table.summary caption { caption-side: top; text-align: left;
               padding: 0.25rem 0; color: #888; font-size: 0.9em; font-style: italic; }
