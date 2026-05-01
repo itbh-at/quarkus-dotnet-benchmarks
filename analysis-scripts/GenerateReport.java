@@ -443,40 +443,24 @@ public class GenerateReport implements Callable<Integer> {
         for (MetricDef md : METRICS) {
             MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
 
-            // dotnet wins this row only if it beats every JVM with usable data.
-            boolean dotnetWinsAll = baseline != null && baseline.n > 0 && !Double.isNaN(baseline.mean);
-            if (dotnetWinsAll) {
-                for (String jvmRt : jvmRts) {
-                    MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
-                    if (other == null || other.n == 0 || Double.isNaN(other.mean)) continue;
-                    if (other.mean == baseline.mean) continue; // tie — don't disqualify
-                    boolean dotnetBetter = md.lowerIsBetter ? baseline.mean < other.mean : baseline.mean > other.mean;
-                    if (!dotnetBetter) { dotnetWinsAll = false; break; }
-                }
-            }
+            // Pick a single winner across all participants in this row
+            // (the dotnet baseline + every JVM-family variant). Ties at the
+            // top yield no winner — we never paint multiple cells green.
+            String winner = pickWinner(md, dotnetRt, baseline, jvmRts, stats);
 
             sb.append("<tr><th class=\"metric\">").append(esc(md.label))
               .append(" <span class=\"unit\">(").append(esc(md.unit)).append(")</span></th>");
 
-            // dotnet baseline cell — green if it wins all, red overlay if
-            // it's a memory metric over budget.
             String dotnetCellCls = "baseline";
-            if (dotnetWinsAll) dotnetCellCls += " win";
+            if (dotnetRt.equals(winner)) dotnetCellCls += " win";
             if (md.isMemory && exceedsBudget(baseline, budgetMib.get(dotnetRt))) dotnetCellCls += " over";
             sb.append("<td class=\"").append(dotnetCellCls).append("\">")
               .append(formatBaseline(baseline, md.decimals)).append("</td>");
 
             for (String jvmRt : jvmRts) {
                 MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
-                boolean jvmWins = false;
-                if (baseline != null && other != null
-                        && baseline.n > 0 && other.n > 0
-                        && !Double.isNaN(baseline.mean) && !Double.isNaN(other.mean)
-                        && other.mean != baseline.mean) {
-                    jvmWins = md.lowerIsBetter ? other.mean < baseline.mean : other.mean > baseline.mean;
-                }
                 String cls = "pair-start";
-                if (jvmWins) cls += " win";
+                if (jvmRt.equals(winner)) cls += " win";
                 if (md.isMemory && exceedsBudget(other, budgetMib.get(jvmRt))) cls += " over";
                 sb.append("<td class=\"").append(cls).append("\">")
                   .append(formatBaseline(other, md.decimals)).append("</td>");
@@ -485,6 +469,34 @@ public class GenerateReport implements Callable<Integer> {
             sb.append("</tr>\n");
         }
         sb.append("</tbody></table></div>\n");
+    }
+
+    /**
+     * Returns the runtime name with the strictly best value for this metric
+     * across the dotnet baseline + every JVM-family variant. Returns null
+     * if there's a tie at the top (so no cell is highlighted) or if no
+     * runtime has usable data.
+     */
+    static String pickWinner(MetricDef md, String dotnetRt, MetricStats baseline,
+                             List<String> jvmRts, Map<String, Map<String, MetricStats>> stats) {
+        String bestName = null;
+        double bestValue = md.lowerIsBetter ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
+        boolean tied = false;
+
+        if (baseline != null && baseline.n > 0 && !Double.isNaN(baseline.mean)) {
+            bestName = dotnetRt;
+            bestValue = baseline.mean;
+        }
+        for (String jvmRt : jvmRts) {
+            MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
+            if (other == null || other.n == 0 || Double.isNaN(other.mean)) continue;
+            double v = other.mean;
+            if (bestName == null) { bestName = jvmRt; bestValue = v; tied = false; continue; }
+            if (v == bestValue) { tied = true; continue; }
+            boolean betterThanBest = md.lowerIsBetter ? v < bestValue : v > bestValue;
+            if (betterThanBest) { bestName = jvmRt; bestValue = v; tied = false; }
+        }
+        return tied ? null : bestName;
     }
 
     /** True iff stats has data and its mean exceeds the budget. */
