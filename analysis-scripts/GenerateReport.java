@@ -254,17 +254,18 @@ public class GenerateReport implements Callable<Integer> {
 
     // ── HTML rendering ──────────────────────────────────────────────────────
 
-    /** Metric definitions for the summary table (display order, axis labels, decimals). */
+    /** Metric definitions: display order, axis labels, decimals, and which
+     *  direction counts as "better" for winner highlighting. */
     static final List<MetricDef> METRICS = List.of(
-        new MetricDef("build_time_s",            "Build time",     "s",      2, "Build time"),
-        new MetricDef("ttfr_ms",                 "TTFR",           "ms",     1, "Time to first request"),
-        new MetricDef("rss_startup_mib",         "RSS @ startup",  "MiB",    1, "RSS at startup"),
-        new MetricDef("rss_first_request_mib",   "RSS @ 1st req",  "MiB",    1, "RSS after first request"),
-        new MetricDef("load_throughput_rps",     "Throughput",     "rps",    0, "Load test throughput"),
-        new MetricDef("load_rss_mib",            "RSS under load", "MiB",    1, "RSS during load test"),
-        new MetricDef("load_throughput_density", "rps / MiB",      "rps/MiB",2, "Throughput per MiB of RSS"),
-        new MetricDef("load_connection_errors",  "Conn err",       "count",  0, "Connection errors"),
-        new MetricDef("load_request_timeouts",   "Timeouts",       "count",  0, "Request timeouts")
+        new MetricDef("build_time_s",            "Build time",     "s",      2, "Build time",                         true),
+        new MetricDef("ttfr_ms",                 "TTFR",           "ms",     1, "Time to first request",              true),
+        new MetricDef("rss_startup_mib",         "RSS @ startup",  "MiB",    1, "RSS at startup",                     true),
+        new MetricDef("rss_first_request_mib",   "RSS @ 1st req",  "MiB",    1, "RSS after first request",            true),
+        new MetricDef("load_throughput_rps",     "Throughput",     "rps",    0, "Load test throughput",               false),
+        new MetricDef("load_rss_mib",            "RSS under load", "MiB",    1, "RSS during load test",               true),
+        new MetricDef("load_throughput_density", "rps / MiB",      "rps/MiB",2, "Throughput per MiB of RSS",          false),
+        new MetricDef("load_connection_errors",  "Conn err",       "count",  0, "Connection errors",                  true),
+        new MetricDef("load_request_timeouts",   "Timeouts",       "count",  0, "Request timeouts",                   true)
     );
 
     /** Which metrics get a chart. Chosen because they're the headline numbers
@@ -419,24 +420,48 @@ public class GenerateReport implements Callable<Integer> {
                                 Map<String, Map<String, MetricStats>> stats) {
         sb.append("<h3>").append(esc(dotnetRt)).append(" vs Quarkus variants</h3>\n");
         sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
-        sb.append("<thead><tr><th rowspan=\"2\">Metric</th><th rowspan=\"2\">").append(esc(dotnetRt)).append("</th>");
+        sb.append("<thead><tr><th rowspan=\"2\">Metric</th><th rowspan=\"2\" class=\"baseline\">")
+          .append(esc(dotnetRt)).append("</th>");
         for (String jvmRt : jvmRts) {
-            sb.append("<th colspan=\"2\">").append(esc(jvmRt)).append("</th>");
+            sb.append("<th colspan=\"2\" class=\"pair-start\">").append(esc(jvmRt)).append("</th>");
         }
         sb.append("</tr><tr>");
-        for (int j = 0; j < jvmRts.size(); j++) sb.append("<th>value</th><th>ratio</th>");
+        for (int j = 0; j < jvmRts.size(); j++) {
+            sb.append("<th class=\"pair-start\">value</th><th>ratio</th>");
+        }
         sb.append("</tr></thead>\n<tbody>\n");
 
         for (MetricDef md : METRICS) {
             MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
+
+            // dotnet wins this row only if it beats every JVM with usable data.
+            boolean dotnetWinsAll = baseline != null && baseline.n > 0 && !Double.isNaN(baseline.mean);
+            if (dotnetWinsAll) {
+                for (String jvmRt : jvmRts) {
+                    MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
+                    if (other == null || other.n == 0 || Double.isNaN(other.mean)) continue;
+                    if (other.mean == baseline.mean) continue; // tie — don't disqualify
+                    boolean dotnetBetter = md.lowerIsBetter ? baseline.mean < other.mean : baseline.mean > other.mean;
+                    if (!dotnetBetter) { dotnetWinsAll = false; break; }
+                }
+            }
+
             sb.append("<tr><th class=\"metric\">").append(esc(md.label))
               .append(" <span class=\"unit\">(").append(esc(md.unit)).append(")</span></th>");
-            // dotnet baseline cell
-            sb.append("<td>").append(formatBaseline(baseline, md.decimals)).append("</td>");
-            // jvm cells
+            sb.append("<td class=\"baseline").append(dotnetWinsAll ? " win" : "").append("\">")
+              .append(formatBaseline(baseline, md.decimals)).append("</td>");
+
             for (String jvmRt : jvmRts) {
                 MetricStats other = stats.getOrDefault(jvmRt, Map.of()).get(md.name);
-                sb.append("<td>").append(formatBaseline(other, md.decimals)).append("</td>");
+                boolean jvmWins = false;
+                if (baseline != null && other != null
+                        && baseline.n > 0 && other.n > 0
+                        && !Double.isNaN(baseline.mean) && !Double.isNaN(other.mean)
+                        && other.mean != baseline.mean) {
+                    jvmWins = md.lowerIsBetter ? other.mean < baseline.mean : other.mean > baseline.mean;
+                }
+                sb.append("<td class=\"pair-start").append(jvmWins ? " win" : "").append("\">")
+                  .append(formatBaseline(other, md.decimals)).append("</td>");
                 sb.append("<td>").append(formatRatio(baseline, other)).append("</td>");
             }
             sb.append("</tr>\n");
@@ -528,7 +553,8 @@ public class GenerateReport implements Callable<Integer> {
 
     record MetricStats(int n, double mean, Double stddev, double min, double max, String unit) {}
 
-    record MetricDef(String name, String label, String unit, int decimals, String titleAttr) {}
+    record MetricDef(String name, String label, String unit, int decimals,
+                     String titleAttr, boolean lowerIsBetter) {}
 
     // ── Style ───────────────────────────────────────────────────────────────
 
@@ -554,7 +580,20 @@ public class GenerateReport implements Callable<Integer> {
           table.compare thead tr:nth-child(2) th { font-weight: 400; color: #888; font-size: 0.85em; padding-top: 0; }
           table.compare th.metric { text-align: left; font-weight: 500; white-space: nowrap; }
           table.compare th.metric .unit { color: #888; }
-          table.compare tbody td:nth-child(2) { background: #7fa8c81a; }
+          table.compare th.baseline, table.compare td.baseline {
+              background: #7fa8c81a;
+              border-right: 2px solid #8886;
+          }
+          /* Vertical separator between each Quarkus variant's column-pair. */
+          table.compare th.pair-start, table.compare td.pair-start {
+              border-left: 1px solid #8884;
+          }
+          /* Winner cell — the variant that beats its pairing on this metric. */
+          table.compare td.win {
+              background: #B8E0BA;
+              color: #1a4d1f;
+              font-weight: 600;
+          }
           h3 { margin-top: 1.5rem; margin-bottom: 0.4rem; font-size: 1.05em; color: #555; }
           table.summary caption { caption-side: top; text-align: left;
               padding: 0.25rem 0; color: #888; font-size: 0.9em; font-style: italic; }
