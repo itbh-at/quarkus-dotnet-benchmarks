@@ -203,23 +203,6 @@ scripts:
     - sh: "[ -f ${{PROJ_REPO_DIR}}/RUN_INFO ] && grep '^run_id: '         ${{PROJ_REPO_DIR}}/RUN_INFO | cut -d' ' -f2- || true"
       then:
         - regex: "(?<RUN.config.repo.run_id>[0-9a-f-]+)"
-    - read-state: ${{config.repo.scenario}}
-      then:
-        - regex: ootb
-          then:
-            - set-state:
-                key: RUN.config.repo.scenarioName
-                value: Out of the box
-          else:
-            - regex: tuned
-              then:
-                - set-state:
-                    key: RUN.config.repo.scenarioName
-                    value: Tuned
-              else:
-                - set-state:
-                    key: RUN.config.repo.scenarioName
-                    value: ${{config.repo.scenario:}}
 
   cleanup-ports:
     - log: Cleaning up leftover processes on port 8080 and Java/dotnet processes

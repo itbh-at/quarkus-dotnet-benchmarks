@@ -88,11 +88,6 @@ help() {
   echo "                                                              Accepted values (1 or more of): quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef"
   echo "                                                              Default: 'quarkus-jvm,quarkus-leyden,quarkus-virtual,quarkus-virtual-leyden,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
   echo "  --run-identifier <RUN_IDENTIFIER>                       An optional identifier for this run to be added to the run output"
-  echo "  --scenario <SCENARIO>                                   The scenario to run"
-  echo "                                                              Accepted values: tuned, ootb"
-  echo "                                                              Default: tuned"
-  echo "                                                              'tuned' applies various performance tuning settings to the JVM and OS"
-  echo "                                                              'ootb' runs with out-of-the-box/default settings"
   echo "  --tests <TESTS_TO_RUN>                                  The tests to run, separated by commas"
   echo "                                                              Accepted values (1 or more of): measure-build-times, measure-time-to-first-request, measure-rss, run-load-test"
   echo "                                                              Default: 'measure-time-to-first-request,measure-rss,run-load-test'"
@@ -155,7 +150,6 @@ print_values() {
   echo "  QUARKUS_BUILD_CONFIG_ARGS: $QUARKUS_BUILD_CONFIG_ARGS"
   echo "  QUARKUS_VERSION: $QUARKUS_VERSION"
   echo "  RUNTIMES: ${RUNTIMES[@]}"
-  echo "  SCENARIO: ${SCENARIO}"
   echo "  TESTS_TO_RUN: ${TESTS_TO_RUN[@]}"
   echo "  USER: $USER"
   echo "  JVM_MEMORY: $JVM_MEMORY"
@@ -257,16 +251,6 @@ setup_jbang() {
   fi
 }
 
-calculate_scenario() {
-  # Default scenario is 'tuned' unless the caller explicitly passed --scenario.
-  # Previously inferred from the SCM branch (main → tuned, ootb → ootb); with
-  # rsync deployment the branch concept is no longer remote-visible, so the
-  # caller must opt into 'ootb' explicitly.
-  if [[ -z "$SCENARIO_SET_BY_USER" ]]; then
-    SCENARIO="tuned"
-  fi
-}
-
 run_benchmarks() {
 # jbang -Dqdup.console.level="ALL" qDup@hyperfoil \
 
@@ -310,7 +294,6 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.0 \
     -S config.quarkus.build_config_args="${QUARKUS_BUILD_CONFIG_ARGS}" \
     -S config.quarkus.version=${QUARKUS_VERSION} \
     -S config.profiler.events=cpu \
-    -S config.repo.scenario=${SCENARIO} \
     -S config.run.description="${DESCRIPTION}" \
     -S config.run.identifier="${RUN_IDENTIFIER}" \
     -S config.run.dropOsFilesystemCaches=${DROP_OS_FILESYSTEM_CACHES} \
@@ -336,8 +319,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   CPUS_FIRST_REQUEST="10"
   DESCRIPTION=""
   RUN_IDENTIFIER=""
-  SCENARIO="tuned"
-  SCENARIO_SET_BY_USER=""
   GRAALVM_HOME=""
   GRAALVM_VERSION="graalvm-community-25.0.2"
   MANDREL_HOME=""
@@ -499,17 +480,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         shift 2
         ;;
 
-      --scenario)
-        if [[ "$2" =~ ^(tuned|ootb)$ ]]; then
-          SCENARIO="$2"
-          SCENARIO_SET_BY_USER="true"
-        else
-          echo "!! [ERROR] --scenario option must be one of (tuned, ootb)!!"
-          exit_abnormal
-        fi
-        shift 2
-        ;;
-
       --tests)
         ttr=($(IFS=','; echo $2))
 
@@ -591,7 +561,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   TESTS_TO_RUN=${filtered_tests[@]}
 
   validate_values
-  calculate_scenario
   print_values
   setup_jbang
   run_benchmarks

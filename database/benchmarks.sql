@@ -16,8 +16,6 @@ CREATE CACHED TABLE "PUBLIC"."RUNS"(
     "HOST_CPU" CHARACTER VARYING(255),
     "HOST_GPU" CHARACTER VARYING(255),
     "HOST_MEMORY" CHARACTER VARYING(64),
-    "SCENARIO" CHARACTER VARYING(32),
-    "SCENARIO_NAME" CHARACTER VARYING(64),
     "NUM_ITERATIONS" INTEGER,
     "TESTS_RUN" CHARACTER VARYING(512),
     "DESCRIPTION" CHARACTER VARYING(1024),
@@ -53,12 +51,12 @@ CREATE CACHED TABLE "PUBLIC"."RUNS"(
     "APP_CPUS" INTEGER,
     "PROFILER_NAME" CHARACTER VARYING(32),
     "PROFILER_EVENTS" CHARACTER VARYING(64)
-);          
+);           
 ALTER TABLE "PUBLIC"."RUNS" ADD CONSTRAINT "PUBLIC"."CONSTRAINT_2" PRIMARY KEY("RUN_ID");      
 -- 2 +/- SELECT COUNT(*) FROM PUBLIC.RUNS;     
 INSERT INTO "PUBLIC"."RUNS" VALUES
-(1, TIMESTAMP '2026-04-30 23:48:25', TIMESTAMP '2026-05-01 02:37:30', TIMESTAMP '2026-05-01 11:03:33.64277', 'Defaults sweep, pre-RUN_INFO', 'root', 'quarkus-dotnet-performance-comparison', 'root@quarkus-dotnet-performance-comparison', 'Ubuntu 24.04.3 LTS', 'Hetzner vServer', '6.8.0-110-generic', 'AMD EPYC-Genoa Processor (16 cpus)', 'Red Hat, Inc. Virtio 1.0 GPU', '30Gi', 'tuned', 'Tuned', 3, NULL, NULL, NULL, FALSE, FALSE, NULL, NULL, NULL, NULL, NULL, NULL, 'temurin-25.0.2', NULL, 'graalvm-community-25.0.2', NULL, 'mandrel-25.0.2.0-Final+java25', NULL, '10.0.100', NULL, '0x20000000', '-Xms512m -Xmx512m', NULL, NULL, NULL, NULL, '0-3', '4-6', '10-12', '10', '13', '7-9', 4, 'none', 'cpu'),
-(2, TIMESTAMP '2026-05-01 10:57:12', TIMESTAMP '2026-05-01 10:58:41', TIMESTAMP '2026-05-01 11:03:34.392139', 'Smoke test of run_id capture', 'root', 'quarkus-dotnet-performance-comparison', 'root@quarkus-dotnet-performance-comparison', 'Ubuntu 24.04.3 LTS', 'Hetzner vServer', '6.8.0-110-generic', 'AMD EPYC-Genoa Processor (16 cpus)', 'Red Hat, Inc. Virtio 1.0 GPU', '30Gi', 'tuned', 'Tuned', 1, 'measure-time-to-first-request', NULL, NULL, FALSE, FALSE, '9acc2bed-8686-4d44-93ad-84fbf9228ee5', 'a182f703fcc9a96900eca9cb6c6335eaaf5d9b01', 'a182f70', 'main', TRUE, TIMESTAMP '2026-05-01 10:55:39', 'temurin-25.0.2', NULL, 'graalvm-community-25.0.2', NULL, 'mandrel-25.0.2.0-Final+java25', NULL, '10.0.100', NULL, '0x20000000', '-Xms512m -Xmx512m', NULL, NULL, NULL, NULL, '0-3', '4-6', '10-12', '10', '13', '7-9', 4, 'none', 'cpu');               
+(1, TIMESTAMP '2026-04-30 23:48:25', TIMESTAMP '2026-05-01 02:37:30', TIMESTAMP '2026-05-01 20:11:57.012538', 'Defaults sweep, pre-RUN_INFO', 'root', 'quarkus-dotnet-performance-comparison', 'root@quarkus-dotnet-performance-comparison', 'Ubuntu 24.04.3 LTS', 'Hetzner vServer', '6.8.0-110-generic', 'AMD EPYC-Genoa Processor (16 cpus)', 'Red Hat, Inc. Virtio 1.0 GPU', '30Gi', 3, NULL, NULL, NULL, FALSE, FALSE, NULL, NULL, NULL, NULL, NULL, NULL, 'temurin-25.0.2', NULL, 'graalvm-community-25.0.2', NULL, 'mandrel-25.0.2.0-Final+java25', NULL, '10.0.100', NULL, '0x20000000', '-Xms512m -Xmx512m', NULL, NULL, NULL, NULL, '0-3', '4-6', '10-12', '10', '13', '7-9', 4, 'none', 'cpu'),
+(2, TIMESTAMP '2026-05-01 10:57:12', TIMESTAMP '2026-05-01 10:58:41', TIMESTAMP '2026-05-01 20:11:57.744959', 'Smoke test of run_id capture', 'root', 'quarkus-dotnet-performance-comparison', 'root@quarkus-dotnet-performance-comparison', 'Ubuntu 24.04.3 LTS', 'Hetzner vServer', '6.8.0-110-generic', 'AMD EPYC-Genoa Processor (16 cpus)', 'Red Hat, Inc. Virtio 1.0 GPU', '30Gi', 1, 'measure-time-to-first-request', NULL, NULL, FALSE, FALSE, '9acc2bed-8686-4d44-93ad-84fbf9228ee5', 'a182f703fcc9a96900eca9cb6c6335eaaf5d9b01', 'a182f70', 'main', TRUE, TIMESTAMP '2026-05-01 10:55:39', 'temurin-25.0.2', NULL, 'graalvm-community-25.0.2', NULL, 'mandrel-25.0.2.0-Final+java25', NULL, '10.0.100', NULL, '0x20000000', '-Xms512m -Xmx512m', NULL, NULL, NULL, NULL, '0-3', '4-6', '10-12', '10', '13', '7-9', 4, 'none', 'cpu');  
 CREATE CACHED TABLE "PUBLIC"."RUNTIME_RESULTS"(
     "RUN_ID" BIGINT NOT NULL,
     "RUNTIME_NAME" CHARACTER VARYING(64) NOT NULL

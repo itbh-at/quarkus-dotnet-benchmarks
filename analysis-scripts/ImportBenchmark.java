@@ -107,9 +107,7 @@ public class ImportBenchmark implements Callable<Integer> {
                   host_gpu                     VARCHAR(255),
                   host_memory                  VARCHAR(64),
 
-                  -- run-level config (config.run / config.repo)
-                  scenario                     VARCHAR(32),
-                  scenario_name                VARCHAR(64),
+                  -- run-level config (config.run)
                   num_iterations               INT,
                   tests_run                    VARCHAR(512),
                   description                  VARCHAR(1024),
@@ -211,7 +209,9 @@ public class ImportBenchmark implements Callable<Integer> {
                 "ALTER TABLE runs ADD COLUMN IF NOT EXISTS deploy_branch VARCHAR(128)",
                 "ALTER TABLE runs ADD COLUMN IF NOT EXISTS deploy_dirty BOOLEAN",
                 "ALTER TABLE runs ADD COLUMN IF NOT EXISTS deployed_at TIMESTAMP",
-                "ALTER TABLE runs DROP COLUMN IF EXISTS deployed_from"
+                "ALTER TABLE runs DROP COLUMN IF EXISTS deployed_from",
+                "ALTER TABLE runs DROP COLUMN IF EXISTS scenario",
+                "ALTER TABLE runs DROP COLUMN IF EXISTS scenario_name"
             }) {
                 s.executeUpdate(alter);
             }
@@ -240,7 +240,7 @@ public class ImportBenchmark implements Callable<Integer> {
               started_at, stopped_at, note,
               host_user, host_name, host_target,
               host_os, host_type, host_kernel, host_cpu, host_gpu, host_memory,
-              scenario, scenario_name, num_iterations, tests_run, description, run_identifier,
+              num_iterations, tests_run, description, run_identifier,
               drop_os_filesystem_caches, use_container_host_network,
               deploy_run_id, deploy_commit, deploy_short_commit, deploy_branch,
               deploy_dirty, deployed_at,
@@ -252,7 +252,7 @@ public class ImportBenchmark implements Callable<Integer> {
               cpu_app, cpu_db, cpu_load_generator, cpu_first_request,
               cpu_monitor, cpu_otel, app_cpus,
               profiler_name, profiler_events
-            ) VALUES (?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,
+            ) VALUES (?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?,?,?, ?,?,
                       ?,?,?,?, ?,?,
                       ?,?,?,?, ?,?, ?,?,?, ?,?, ?,?,?, ?,?,?,?, ?,?,?, ?,?)
             """;
@@ -274,8 +274,6 @@ public class ImportBenchmark implements Callable<Integer> {
             ps.setString(i++, str(host.path("gpu")));
             ps.setString(i++, str(host.path("memory")));
 
-            ps.setString(i++, str(repo.path("scenario")));
-            ps.setString(i++, str(repo.path("scenarioName")));
             setNullableInt(ps, i++, config.path("num_iterations"));
             ps.setString(i++, joinTests(config.path("tests")));
             ps.setString(i++, str(runCfg.path("description")));

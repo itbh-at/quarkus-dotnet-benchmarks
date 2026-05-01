@@ -285,7 +285,6 @@ public class GenerateReport implements Callable<Integer> {
         appendMeta(sb, "Note",         meta.get("note"));
         appendMeta(sb, "Tests run",    meta.get("tests_run"));
         appendMeta(sb, "Iterations",   meta.get("num_iterations"));
-        appendMeta(sb, "Scenario",     meta.get("scenario_name"));
         appendMeta(sb, "Host",         joinNonNull(meta.get("host_type"), meta.get("host_cpu"), meta.get("host_memory")));
         appendMeta(sb, "OS",           joinNonNull(meta.get("host_os"), meta.get("host_kernel")));
         appendMeta(sb, "Java",         meta.get("jvm_version"));
@@ -306,10 +305,24 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("</table>\n</section>\n");
 
         // ── Summary table ──
+        // Compute the expected iteration count for the run; if every populated
+        // cell has the same n we display it once in the caption rather than
+        // tagging every single cell. Rare anomalies (cell with n different
+        // from the rest) are still flagged inline.
+        Integer expectedN = (Integer) meta.get("num_iterations");
+        int dominantN = computeDominantN(stats, expectedN);
+
         sb.append("<h2>Per-runtime summary</h2>\n");
-        sb.append("<p class=\"hint\">Cells show mean ± sample standard deviation across iterations. " +
-                  "<code>n</code> is the number of iterations contributing.</p>\n");
-        sb.append("<div class=\"scroll\"><table class=\"summary\">\n<thead><tr><th>Runtime</th>");
+        sb.append("<p class=\"hint\">Cells show mean ± sample standard deviation across iterations.</p>\n");
+        sb.append("<div class=\"scroll\"><table class=\"summary\">\n");
+        if (dominantN > 0) {
+            sb.append("<caption>n = ").append(dominantN)
+              .append(" iteration").append(dominantN == 1 ? "" : "s")
+              .append(" per cell")
+              .append(dominantN > 0 ? "" : "")
+              .append("</caption>\n");
+        }
+        sb.append("<thead><tr><th>Runtime</th>");
         for (MetricDef md : METRICS) {
             sb.append("<th title=\"").append(esc(md.titleAttr)).append("\">")
               .append(esc(md.label)).append("<br><span class=\"unit\">")
@@ -320,7 +333,7 @@ public class GenerateReport implements Callable<Integer> {
             sb.append("<tr><th class=\"rt\">").append(esc(r)).append("</th>");
             for (MetricDef md : METRICS) {
                 MetricStats s = stats.getOrDefault(r, Map.of()).get(md.name);
-                sb.append("<td>").append(formatStats(s, md.decimals)).append("</td>");
+                sb.append("<td>").append(formatStats(s, md.decimals, dominantN)).append("</td>");
             }
             sb.append("</tr>\n");
         }
@@ -379,15 +392,41 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("<tr><th>").append(esc(label)).append("</th><td>").append(esc(s)).append("</td></tr>\n");
     }
 
-    static String formatStats(MetricStats s, int decimals) {
+    /**
+     * @param dominantN the run-wide iteration count surfaced in the table
+     *                  caption; if a cell has a different n we annotate it
+     *                  inline so the anomaly is visible.
+     */
+    static String formatStats(MetricStats s, int decimals, int dominantN) {
         if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
         StringBuilder sb = new StringBuilder();
         sb.append(fmtDouble(s.mean, decimals));
         if (s.stddev != null && s.n >= 2) {
             sb.append(" <span class=\"sd\">± ").append(fmtDouble(s.stddev, decimals)).append("</span>");
         }
-        sb.append(" <span class=\"n\">(n=").append(s.n).append(")</span>");
+        if (dominantN <= 0 || s.n != dominantN) {
+            sb.append(" <span class=\"n\">(n=").append(s.n).append(")</span>");
+        }
         return sb.toString();
+    }
+
+    /**
+     * If every populated metric cell has the same iteration count, return
+     * that value (so we can advertise it once in the table caption). Returns
+     * 0 to signal "mixed" — fall back to per-cell labelling.
+     */
+    static int computeDominantN(Map<String, Map<String, MetricStats>> stats, Integer expectedFromMeta) {
+        Set<Integer> ns = new HashSet<>();
+        for (var byMetric : stats.values()) {
+            for (var s : byMetric.values()) {
+                if (s != null && s.n > 0) ns.add(s.n);
+            }
+        }
+        if (ns.size() == 1) return ns.iterator().next();
+        if (expectedFromMeta != null && expectedFromMeta > 0 && ns.size() == 0) {
+            return expectedFromMeta;
+        }
+        return 0;
     }
 
     static String fmtDouble(double v, int decimals) {
@@ -433,6 +472,8 @@ public class GenerateReport implements Callable<Integer> {
           table.summary th, table.summary td, table.raw th, table.raw td {
               padding: 0.35rem 0.6rem; text-align: right; border-bottom: 1px solid #8884;
           }
+          table.summary caption { caption-side: top; text-align: left;
+              padding: 0.25rem 0; color: #888; font-size: 0.9em; font-style: italic; }
           table.summary thead th { text-align: center; vertical-align: bottom; }
           table.summary th.rt, table.raw th.rt { text-align: left; font-family: ui-monospace, monospace; }
           table.raw td.metric { text-align: left; color: #888; }
