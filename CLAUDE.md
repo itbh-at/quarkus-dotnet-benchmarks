@@ -166,7 +166,11 @@ variants) syntactically impossible.
 jbang analysis-scripts/ImportBenchmark.java --results /tmp/qdb-defaults \
   --note "Defaults sweep, 7 runtimes x 3 iter x 3 tests"
 
+# Single-run report — header / per-runtime mean ± stddev table /
+# bar charts with error bars / collapsible per-iteration raw values.
+# Output is a self-contained HTML file (PNGs base64-embedded, no asset dir).
 jbang analysis-scripts/GenerateReport.java --run-id 1
+# → reports/run-1-report.html
 jbang analysis-scripts/CompareVersions.java --app quarkus-jvm
 jbang analysis-scripts/CheckUpstreamDivergence.java
 ```
