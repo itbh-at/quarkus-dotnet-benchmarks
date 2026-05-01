@@ -254,18 +254,21 @@ public class GenerateReport implements Callable<Integer> {
 
     // ── HTML rendering ──────────────────────────────────────────────────────
 
-    /** Metric definitions: display order, axis labels, decimals, and which
-     *  direction counts as "better" for winner highlighting. */
+    /** Metric definitions: display order is by importance for performance
+     *  comparison. Throughput/TTFR/density first; memory-cost metrics next;
+     *  build-time and error counters last. `lowerIsBetter` drives the
+     *  winner highlight; `isMemory` flags rows that should be checked
+     *  against the configured memory budget. */
     static final List<MetricDef> METRICS = List.of(
-        new MetricDef("build_time_s",            "Build time",     "s",      2, "Build time",                         true),
-        new MetricDef("ttfr_ms",                 "TTFR",           "ms",     1, "Time to first request",              true),
-        new MetricDef("rss_startup_mib",         "RSS @ startup",  "MiB",    1, "RSS at startup",                     true),
-        new MetricDef("rss_first_request_mib",   "RSS @ 1st req",  "MiB",    1, "RSS after first request",            true),
-        new MetricDef("load_throughput_rps",     "Throughput",     "rps",    0, "Load test throughput",               false),
-        new MetricDef("load_rss_mib",            "RSS under load", "MiB",    1, "RSS during load test",               true),
-        new MetricDef("load_throughput_density", "rps / MiB",      "rps/MiB",2, "Throughput per MiB of RSS",          false),
-        new MetricDef("load_connection_errors",  "Conn err",       "count",  0, "Connection errors",                  true),
-        new MetricDef("load_request_timeouts",   "Timeouts",       "count",  0, "Request timeouts",                   true)
+        new MetricDef("load_throughput_rps",     "Throughput",     "rps",    0, "Load test throughput",               false, false),
+        new MetricDef("ttfr_ms",                 "TTFR",           "ms",     1, "Time to first request",              true,  false),
+        new MetricDef("load_throughput_density", "rps / MiB",      "rps/MiB",2, "Throughput per MiB of RSS",          false, false),
+        new MetricDef("rss_startup_mib",         "RSS @ startup",  "MiB",    1, "RSS at startup",                     true,  true),
+        new MetricDef("rss_first_request_mib",   "RSS @ 1st req",  "MiB",    1, "RSS after first request",            true,  true),
+        new MetricDef("load_rss_mib",            "RSS under load", "MiB",    1, "RSS during load test",               true,  true),
+        new MetricDef("build_time_s",            "Build time",     "s",      2, "Build time",                         true,  false),
+        new MetricDef("load_connection_errors",  "Conn err",       "count",  0, "Connection errors",                  true,  false),
+        new MetricDef("load_request_timeouts",   "Timeouts",       "count",  0, "Request timeouts",                   true,  false)
     );
 
     /** Which metrics get a chart. Chosen because they're the headline numbers
@@ -314,23 +317,41 @@ public class GenerateReport implements Callable<Integer> {
         appendMeta(sb, "Deployed at",  meta.get("deployed_at"));
         sb.append("</table>\n</section>\n");
 
-        // ── Summary table ──
-        // Compute the expected iteration count for the run; if every populated
-        // cell has the same n we display it once in the caption rather than
-        // tagging every single cell. Rare anomalies (cell with n different
-        // from the rest) are still flagged inline.
+        // Compute per-runtime memory budgets so RSS rows that exceed the
+        // configured limit can be flagged. For JVM-family runtimes the
+        // budget is -Xmx parsed from jvm_memory; for dotnet runtimes it's
+        // dotnet_gc_heap_hard_limit. NaN means "no usable budget" — no
+        // highlighting is applied.
+        Map<String, Double> budgetMib = new HashMap<>();
+        for (String r : runtimes) budgetMib.put(r, runtimeMemoryBudgetMib(r, meta));
+
         Integer expectedN = (Integer) meta.get("num_iterations");
         int dominantN = computeDominantN(stats, expectedN);
 
+        // ── dotnet vs Quarkus comparison (top of report) ──
+        // Headline output: identifies which side wins each metric and by
+        // how much, so it's the first thing the reader sees.
+        List<String> dotnetRts = runtimes.stream().filter(r -> r.startsWith("dotnet")).toList();
+        List<String> jvmFamilyRts = runtimes.stream().filter(r -> !r.startsWith("dotnet")).toList();
+        if (!dotnetRts.isEmpty() && !jvmFamilyRts.isEmpty()) {
+            sb.append("<h2>dotnet vs Quarkus comparison</h2>\n");
+            sb.append("<p class=\"hint\">For each dotnet variant, every metric is shown alongside the same metric from each Quarkus variant. " +
+                      "The ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number for that metric, below 1× means dotnet did. " +
+                      "<span class=\"win-key\">Green</span> marks the winning side per metric. " +
+                      "<span class=\"over-key\">Red</span> marks RSS values that exceed the runtime's configured memory budget.</p>\n");
+            for (String dotnetRt : dotnetRts) {
+                renderDotnetVsJvmTable(sb, dotnetRt, jvmFamilyRts, stats, budgetMib);
+            }
+        }
+
+        // ── Per-runtime summary ──
         sb.append("<h2>Per-runtime summary</h2>\n");
         sb.append("<p class=\"hint\">Cells show mean ± sample standard deviation across iterations.</p>\n");
         sb.append("<div class=\"scroll\"><table class=\"summary\">\n");
         if (dominantN > 0) {
             sb.append("<caption>n = ").append(dominantN)
               .append(" iteration").append(dominantN == 1 ? "" : "s")
-              .append(" per cell")
-              .append(dominantN > 0 ? "" : "")
-              .append("</caption>\n");
+              .append(" per cell</caption>\n");
         }
         sb.append("<thead><tr><th>Runtime</th>");
         for (MetricDef md : METRICS) {
@@ -341,9 +362,12 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("</tr></thead>\n<tbody>\n");
         for (String r : runtimes) {
             sb.append("<tr><th class=\"rt\">").append(esc(r)).append("</th>");
+            Double budget = budgetMib.get(r);
             for (MetricDef md : METRICS) {
                 MetricStats s = stats.getOrDefault(r, Map.of()).get(md.name);
-                sb.append("<td>").append(formatStats(s, md.decimals, dominantN)).append("</td>");
+                boolean over = md.isMemory && exceedsBudget(s, budget);
+                sb.append("<td").append(over ? " class=\"over\"" : "").append(">")
+                  .append(formatStats(s, md.decimals, dominantN)).append("</td>");
             }
             sb.append("</tr>\n");
         }
@@ -362,22 +386,6 @@ public class GenerateReport implements Callable<Integer> {
             }
         }
         sb.append("</div>\n");
-
-        // ── dotnet vs others comparison ──
-        // Per-runtime "dotnet vs the JVM family" comparison tables. We
-        // identify dotnet variants by name prefix, which works for the
-        // current `dotnet-aspnet-ef` variant and any future ones we add
-        // (`dotnet-aot-...`, `dotnet-jit-...`, etc).
-        List<String> dotnetRts = runtimes.stream().filter(r -> r.startsWith("dotnet")).toList();
-        List<String> jvmFamilyRts = runtimes.stream().filter(r -> !r.startsWith("dotnet")).toList();
-        if (!dotnetRts.isEmpty() && !jvmFamilyRts.isEmpty()) {
-            sb.append("<h2>dotnet vs Quarkus comparison</h2>\n");
-            sb.append("<p class=\"hint\">For each dotnet variant, every metric is shown alongside the same metric from each Quarkus variant. " +
-                      "The ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number for that metric, below 1× means dotnet did.</p>\n");
-            for (String dotnetRt : dotnetRts) {
-                renderDotnetVsJvmTable(sb, dotnetRt, jvmFamilyRts, stats);
-            }
-        }
 
         // ── Per-iteration raw values ──
         sb.append("<details><summary>Per-iteration raw values</summary>\n");
@@ -417,7 +425,8 @@ public class GenerateReport implements Callable<Integer> {
      * and the quarkus/dotnet ratio).
      */
     void renderDotnetVsJvmTable(StringBuilder sb, String dotnetRt, List<String> jvmRts,
-                                Map<String, Map<String, MetricStats>> stats) {
+                                Map<String, Map<String, MetricStats>> stats,
+                                Map<String, Double> budgetMib) {
         sb.append("<h3>").append(esc(dotnetRt)).append(" vs Quarkus variants</h3>\n");
         sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
         sb.append("<thead><tr><th rowspan=\"2\">Metric</th><th rowspan=\"2\" class=\"baseline\">")
@@ -448,7 +457,13 @@ public class GenerateReport implements Callable<Integer> {
 
             sb.append("<tr><th class=\"metric\">").append(esc(md.label))
               .append(" <span class=\"unit\">(").append(esc(md.unit)).append(")</span></th>");
-            sb.append("<td class=\"baseline").append(dotnetWinsAll ? " win" : "").append("\">")
+
+            // dotnet baseline cell — green if it wins all, red overlay if
+            // it's a memory metric over budget.
+            String dotnetCellCls = "baseline";
+            if (dotnetWinsAll) dotnetCellCls += " win";
+            if (md.isMemory && exceedsBudget(baseline, budgetMib.get(dotnetRt))) dotnetCellCls += " over";
+            sb.append("<td class=\"").append(dotnetCellCls).append("\">")
               .append(formatBaseline(baseline, md.decimals)).append("</td>");
 
             for (String jvmRt : jvmRts) {
@@ -460,7 +475,10 @@ public class GenerateReport implements Callable<Integer> {
                         && other.mean != baseline.mean) {
                     jvmWins = md.lowerIsBetter ? other.mean < baseline.mean : other.mean > baseline.mean;
                 }
-                sb.append("<td class=\"pair-start").append(jvmWins ? " win" : "").append("\">")
+                String cls = "pair-start";
+                if (jvmWins) cls += " win";
+                if (md.isMemory && exceedsBudget(other, budgetMib.get(jvmRt))) cls += " over";
+                sb.append("<td class=\"").append(cls).append("\">")
                   .append(formatBaseline(other, md.decimals)).append("</td>");
                 sb.append("<td>").append(formatRatio(baseline, other)).append("</td>");
             }
@@ -468,6 +486,59 @@ public class GenerateReport implements Callable<Integer> {
         }
         sb.append("</tbody></table></div>\n");
     }
+
+    /** True iff stats has data and its mean exceeds the budget. */
+    static boolean exceedsBudget(MetricStats s, Double budgetMib) {
+        if (s == null || s.n == 0 || Double.isNaN(s.mean)) return false;
+        if (budgetMib == null || budgetMib.isNaN() || budgetMib <= 0) return false;
+        return s.mean > budgetMib;
+    }
+
+    /**
+     * Returns the configured max memory in MiB for a runtime, or NaN if
+     * unknown. JVM-family runtimes use the parsed -Xmx from jvm_memory;
+     * dotnet runtimes use dotnet_gc_heap_hard_limit.
+     */
+    static Double runtimeMemoryBudgetMib(String runtime, Map<String, Object> meta) {
+        if (runtime.startsWith("dotnet")) {
+            return parseDotnetLimitMib(asString(meta.get("dotnet_gc_heap_hard_limit")));
+        }
+        return parseXmxMib(asString(meta.get("jvm_memory")));
+    }
+
+    /** Extracts the -Xmx value from a JVM args string (e.g. "-Xms512m -Xmx1g")
+     *  and converts to MiB. Returns NaN if no -Xmx is present. */
+    static Double parseXmxMib(String jvmMemory) {
+        if (jvmMemory == null) return Double.NaN;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+            "-Xmx(\\d+)([kKmMgGtT]?)").matcher(jvmMemory);
+        if (!m.find()) return Double.NaN;
+        long n = Long.parseLong(m.group(1));
+        char unit = m.group(2).isEmpty() ? 'b' : Character.toLowerCase(m.group(2).charAt(0));
+        return switch (unit) {
+            case 'k' -> n / 1024.0;
+            case 'm' -> (double) n;
+            case 'g' -> n * 1024.0;
+            case 't' -> n * 1024.0 * 1024.0;
+            default  -> n / (1024.0 * 1024.0); // raw bytes
+        };
+    }
+
+    /** Parses dotnet_gc_heap_hard_limit (hex bytes string like "0x20000000")
+     *  to MiB. Returns NaN if missing or unparseable. */
+    static Double parseDotnetLimitMib(String s) {
+        if (s == null || s.isEmpty()) return Double.NaN;
+        try {
+            long bytes = s.startsWith("0x") || s.startsWith("0X")
+                ? Long.parseUnsignedLong(s.substring(2), 16)
+                : Long.parseLong(s);
+            return bytes / (1024.0 * 1024.0);
+        } catch (NumberFormatException e) {
+            return Double.NaN;
+        }
+    }
+
+    static String asString(Object o) { return o == null ? null : o.toString(); }
 
     /** Mean rounded to the metric's decimals; em-dash for missing data. */
     static String formatBaseline(MetricStats s, int decimals) {
@@ -554,7 +625,7 @@ public class GenerateReport implements Callable<Integer> {
     record MetricStats(int n, double mean, Double stddev, double min, double max, String unit) {}
 
     record MetricDef(String name, String label, String unit, int decimals,
-                     String titleAttr, boolean lowerIsBetter) {}
+                     String titleAttr, boolean lowerIsBetter, boolean isMemory) {}
 
     // ── Style ───────────────────────────────────────────────────────────────
 
@@ -589,11 +660,24 @@ public class GenerateReport implements Callable<Integer> {
               border-left: 1px solid #8884;
           }
           /* Winner cell — the variant that beats its pairing on this metric. */
-          table.compare td.win {
+          table.compare td.win, table.summary td.win {
               background: #B8E0BA;
               color: #1a4d1f;
               font-weight: 600;
           }
+          /* Over-budget cell — RSS exceeds the runtime's configured memory budget
+             (-Xmx for JVM-family, GCHeapHardLimit for dotnet). The .win + .over
+             combination keeps the win greenness via gradient. */
+          table.compare td.over, table.summary td.over {
+              background: #F7C8C8;
+              color: #6b1f1f;
+          }
+          table.compare td.over.win, table.summary td.over.win {
+              background: linear-gradient(135deg, #B8E0BA 50%, #F7C8C8 50%);
+              color: #2a3a2a;
+          }
+          .win-key { background: #B8E0BA; color: #1a4d1f; padding: 0 0.3em; border-radius: 3px; }
+          .over-key { background: #F7C8C8; color: #6b1f1f; padding: 0 0.3em; border-radius: 3px; }
           h3 { margin-top: 1.5rem; margin-bottom: 0.4rem; font-size: 1.05em; color: #555; }
           table.summary caption { caption-side: top; text-align: left;
               padding: 0.25rem 0; color: #888; font-size: 0.9em; font-style: italic; }
