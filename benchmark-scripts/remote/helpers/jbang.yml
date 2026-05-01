@@ -14,3 +14,33 @@ scripts:
 
   ensure-jbang:
     - script: ensure-jbang-${{os}}
+
+  # Pre-resolves the wrk@hyperfoil catalog alias and the underlying Maven
+  # artifact into jbang's local caches, so the benchmark run-load-test phase
+  # never needs to reach github.com or Maven Central. Without this, every
+  # benchmark run reaches out to GitHub at load-time, and a transient
+  # GitHub blip (rate-limit / IPv6 hiccup / outage) silently zeroes out
+  # the throughput measurements.
+  #
+  # Two pre-fetches: (1) JDK 21 into ~/.jbang/cache/jdks/21, since
+  # Hyperfoil's wrk needs Java 21 and jbang's default is too old;
+  # (2) the wrk@hyperfoil alias + Maven artifacts into the resolution
+  # cache. After both, `jbang -j 21 wrk@hyperfoil` at run time touches
+  # no network.
+  #
+  # `-j 21 info classpath` is NOT valid jbang CLI: `-j` is a `run`-only
+  # option, and the parser then treats `info` as a script alias and
+  # bails. So we split the two operations.
+  ensure-wrk:
+    - log: Pre-installing JDK 21 into jbang cache
+    - sh: jbang jdk install 21
+      then:
+        - regex: "(installed|already|JDK 21)"
+          else:
+            - abort: "jbang could not install JDK 21 — check that the remote can reach the JDK download mirror"
+    - log: Pre-resolving wrk@hyperfoil catalog + Maven artifacts
+    - sh: jbang info classpath wrk@hyperfoil
+      then:
+        - regex: "(\\.jar|wrk)"
+          else:
+            - abort: "Could not pre-resolve wrk@hyperfoil — verify the remote can reach github.com"

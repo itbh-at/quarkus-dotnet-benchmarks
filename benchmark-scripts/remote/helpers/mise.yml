@@ -46,12 +46,14 @@ scripts:
         # source ~/.bashrc may early-return in non-interactive shells.
         - sh: export PATH="$HOME/.local/bin:$PATH"
       else:
-        - log: Updating mise
-        - sh: mise self-update -y
-          then:
-            - regex: "(upgraded|up to date|latest)"
-              else:
-                - abort: failed to upgrade mise
+        # Deliberately do NOT self-update. mise self-update calls the
+        # GitHub releases API on every benchmark run — that's both a
+        # transient-failure vector (rate-limit / outage) and a benchmark-
+        # stability risk (unexpected mise version bump mid-experiment).
+        # If a specific mise version is required, install it explicitly
+        # in deploy or remove the binary so the install branch above
+        # picks it up.
+        - log: mise already installed (skipping self-update by design)
     - sh: mise --version
       then:
         - regex: "(?<RUN.mise_version>[\\d\\.]+)"
