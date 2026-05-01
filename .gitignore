@@ -5,9 +5,10 @@ bin/Debug/
 bin/Release/
 
 # H2 binary database (SQL export is committed instead)
+database/*.mv.db
+database/*.trace.db
+database/*.lock.db
 database/*.h2.db
-database/*.h2.db.trace.db
-database/*.h2.db.lock.db
 
 # Generated reports (regenerated from DB on demand)
 reports/

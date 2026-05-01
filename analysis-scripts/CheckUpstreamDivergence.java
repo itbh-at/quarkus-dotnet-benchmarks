@@ -1,6 +1,6 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 //DEPS org.yaml:snakeyaml:2.2
-//DEPS org.h2database:h2:2.2.224
+//DEPS com.h2database:h2:2.3.232
 //DEPS info.picocli:picocli:4.7.5
 
 import picocli.CommandLine;

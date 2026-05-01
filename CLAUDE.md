@@ -124,19 +124,44 @@ SSH on `127.0.0.1`), pass `--host LOCAL`. No deploy needed in that case.
 ## Data Flow
 
 ```txt
-Remote run → benchmark.log (structured key:value)
-  → rsync back locally into results/YYYY-MM-DD/{variant}-{runtime}-run{N}/
-  → jbang analysis-scripts/ImportBenchmark.java --date YYYY-MM-DD
-  → database/benchmarks.h2.db + database/benchmarks.sql (committed)
-  → jbang analysis-scripts/GenerateReport.java --date YYYY-MM-DD
-  → reports/YYYY-MM-DD-report.html
+qDup run on remote → metrics.json + per-iteration logs downloaded to <output-dir>
+  → jbang analysis-scripts/ImportBenchmark.java --results <output-dir>
+  → database/benchmarks.mv.db + database/benchmarks.sql (committed)
+  → jbang analysis-scripts/GenerateReport.java --run-id <id>
+  → reports/<id>-report.html
 ```
+
+## H2 Schema
+
+Three tables, designed so every measurement is fully labelled and aggregation
+queries **must** `GROUP BY runtime_name`:
+
+- **`runs`** — one row per qDup invocation. Holds host metadata, runtime
+  versions (Java/GraalVM/Mandrel/dotnet), JVM tuning, Quarkus build options,
+  CPU pinning, profiler config, and timing.
+- **`runtime_results`** — one row per `(run_id, runtime_name)`. Joins runs to
+  metric rows and acts as the foreign-key target that prevents an orphaned
+  metric losing its runtime label.
+- **`iteration_metrics`** — one row per `(run_id, runtime_name, iteration,
+  metric_name)`. Columns: `metric_value` (DOUBLE), `unit` (VARCHAR). Metric
+  names imported from `metrics.json`: `build_time_s`, `ttfr_ms`,
+  `rss_startup_mib`, `rss_first_request_mib`, `load_throughput_rps`,
+  `load_rss_mib`, `load_throughput_density`, `load_connection_errors`,
+  `load_request_timeouts`.
+
+The grain of `iteration_metrics` is **one measurement, fully tagged**. There
+is no "metric without a runtime" or "iteration without an index" — the schema
+makes the most error-prone analysis mistake (confusing iterations across
+variants) syntactically impossible.
 
 ## Analysis Scripts (JBang)
 
 ```sh
-jbang analysis-scripts/ImportBenchmark.java --date YYYY-MM-DD
-jbang analysis-scripts/GenerateReport.java --date YYYY-MM-DD
+# Import a qDup output directory (default: ./database/benchmarks.{mv.db,sql})
+jbang analysis-scripts/ImportBenchmark.java --results /tmp/qdb-defaults \
+  --note "Defaults sweep, 7 runtimes x 3 iter x 3 tests"
+
+jbang analysis-scripts/GenerateReport.java --run-id 1
 jbang analysis-scripts/CompareVersions.java --app quarkus-jvm
 jbang analysis-scripts/CheckUpstreamDivergence.java
 ```
@@ -178,5 +203,7 @@ whitelisted `DOTNET_*` environment variables are captured.
   OS, JVM CONFIG, DOTNET CONFIG, BENCHMARK CONFIG, RESULTS)
 - `database/benchmarks.sql` is the version-controlled source of truth for all
   results
-- `database/benchmarks.h2.db` is gitignored (binary); regenerate with `jbang
-  analysis-scripts/ImportBenchmark.java --rebuild`
+- `database/benchmarks.mv.db` is gitignored (H2 binary); rehydrate by
+  re-running `jbang analysis-scripts/ImportBenchmark.java --results <dir>`
+  for each run, or by `RUNSCRIPT FROM 'database/benchmarks.sql'` against a
+  fresh H2 database
