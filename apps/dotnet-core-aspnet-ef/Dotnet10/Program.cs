@@ -72,7 +72,8 @@ fruits.MapGet("/{name}", async (string name, FruitService svc) =>
 });
 
 fruits.MapPost("/", async (FruitDto dto, FruitService svc) =>
-    Results.Ok(await svc.CreateFruitAsync(dto)));
+    Results.Ok(await svc.CreateFruitAsync(dto)))
+    .AddEndpointFilter<ValidationFilter<FruitDto>>();
 
 // ── Health endpoints ──────────────────────────────────────────────────────────
 app.MapHealthChecks("/health/live");
