@@ -234,6 +234,21 @@ xmx_to_dotnet_gc_limit() {
   printf '0x%X\n' "$bytes"
 }
 
+# Combines JVM_MEMORY and JVM_ARGS into the comma-separated form that
+# Quarkus's `quarkus.package.jar.aot.additional-recording-args` property
+# expects. Required because Leyden's AOT cache is JVM-arg-sensitive: the
+# training-run JVM must see the same heap/GC/preview flags as the
+# runtime JVM, otherwise the cache is silently ineffective.
+#
+# We pre-compute the comma form here (in the launcher) rather than in
+# main.yml's buildCmd because nesting `$(...)` shell substitution inside
+# qDup's `time -p sh -c '...'` wrapper breaks single-quote nesting and
+# corrupts BUILD_TIME measurements.
+aot_recording_args() {
+  local combined="$1 $2"
+  echo "$combined" | tr -s ' \t' ',' | sed 's/^,//;s/,$//'
+}
+
 setup_jbang() {
   if command -v jbang &> /dev/null; then
     echo "Using installed jbang ($(jbang --version))"
@@ -261,6 +276,12 @@ run_benchmarks() {
     local target="${USER}@${HOST}"
   fi
 
+  # Pre-compute the comma-separated recording args for Leyden's training run.
+  # See aot_recording_args() above for why this is computed in the launcher
+  # rather than the qDup buildCmd.
+  local AOT_RECORDING_ARGS
+  AOT_RECORDING_ARGS=$(aot_recording_args "${JVM_MEMORY}" "${JVM_ARGS}")
+
 #print_values
 
 #  jbang qDup@hyperfoil --trace="target" \
@@ -281,6 +302,7 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.0 \
     -S config.dotnet.version=${DOTNET_VERSION} \
     -S config.quarkus.native_build_options="${NATIVE_QUARKUS_BUILD_OPTIONS}" \
     -S config.jvm.args="${JVM_ARGS}" \
+    -S config.aot.recordingArgs="${AOT_RECORDING_ARGS}" \
     -S config.profiler.name=${PROFILER} \
     -S config.resources.app_cpus="$(count_cpus "${CPUS_APP}")" \
     -S config.resources.cpu.app="${CPUS_APP}" \

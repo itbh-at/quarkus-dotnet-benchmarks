@@ -36,6 +36,11 @@ states:
 
   config.jvm.memory: #-Xmx128m
   config.jvm.args: #-XX:+UseNUMA
+  # Comma-separated JVM args forwarded to Leyden's AOT training run. Computed
+  # by the launcher (aot_recording_args() in run-benchmarks.sh) from
+  # config.jvm.memory + config.jvm.args. Used by quarkus-leyden +
+  # quarkus-virtual-leyden buildCmds.
+  config.aot.recordingArgs:
   config.quarkus.build_config_args:
 
   config.quarkus.native_build_options: #-Dquarkus.native.native-image-xmx=<maximum_memory>
@@ -103,7 +108,16 @@ states:
       dir: ${{QUARKUS_JVM_DIR}}
       updateScript: skip-version-update
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      # The Leyden AOT cache (.aot) is JVM-arg-sensitive: heap layout, GC,
+      # preview-feature flags etc. captured by the training run must match
+      # the runtime JVM, otherwise the cache is silently ineffective. We
+      # forward config.jvm.memory + config.jvm.args to the training-run JVM
+      # via Quarkus's quarkus.package.jar.aot.additional-recording-args
+      # property. The comma-separated form is pre-computed by the launcher
+      # (aot_recording_args() in run-benchmarks.sh) and passed in as
+      # config.aot.recordingArgs — doing it inline as $(printf ... | tr ...)
+      # breaks under qDup's `time -p sh -c '...'` quoting.
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*' -Dquarkus.package.jar.aot.additional-recording-args=${{config.aot.recordingArgs}}"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus-virtual
@@ -119,7 +133,11 @@ states:
       dir: ${{QUARKUS_VIRTUAL_DIR}}
       updateScript: skip-version-update
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      # See comment on quarkus-leyden — same forwarding of jvm.memory +
+      # jvm.args to the AOT recording-run JVM so the cache it builds
+      # matches the runtime JVM. config.aot.recordingArgs is pre-computed
+      # by the launcher.
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*' -Dquarkus.package.jar.aot.additional-recording-args=${{config.aot.recordingArgs}}"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus-native
