@@ -271,6 +271,22 @@ public class GenerateReport implements Callable<Integer> {
         new MetricDef("load_request_timeouts",   "Timeouts",       "count",  0, "Request timeouts",                   true,  false)
     );
 
+    static MetricDef metric(String name) {
+        return METRICS.stream().filter(m -> m.name.equals(name)).findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Unknown metric: " + name));
+    }
+
+    /** Alternate weighted ordering: efficiency-first. rps/MiB outweighs every
+     *  later metric combined; TTFR is next; raw throughput third; RSS under
+     *  load fourth. Other metrics (startup RSS, build time, errors) don't
+     *  contribute to this score. */
+    static final List<MetricDef> EFFICIENCY_ORDERED_METRICS = List.of(
+        metric("load_throughput_density"),
+        metric("ttfr_ms"),
+        metric("load_throughput_rps"),
+        metric("load_rss_mib")
+    );
+
     /** Which metrics get a chart. Chosen because they're the headline numbers
      *  and have a sensible single-axis bar comparison. */
     static final List<String> CHART_METRICS = List.of(
@@ -344,8 +360,9 @@ public class GenerateReport implements Callable<Integer> {
             sb.append("<p class=\"hint\">Per metric, the ratio in parentheses is <code>quarkus / dotnet</code>: values above 1× mean Quarkus produced a higher number, below 1× means dotnet did. " +
                       "<span class=\"win-key\">Green</span> marks the per-row winner within each category. " +
                       "<span class=\"over-key\">Red</span> marks RSS values that exceed the runtime's configured memory budget. " +
-                      "The overall category winner is decided by an importance-weighted score: more important metrics " +
-                      "(in row order, top first) outweigh less important ones, so the leading metric outweighs every other combined.</p>\n");
+                      "Two importance-weighted scores are reported per category: the <em>Overall winner</em> uses the table-row order (Throughput → TTFR → rps/MiB → memory rows → build time → errors), " +
+                      "while the <em>Efficiency-weighted winner</em> reorders to rps/MiB → TTFR → throughput → RSS-under-load. " +
+                      "In both, the leading metric outweighs every later metric combined, so ranking is effectively lexicographic in the chosen order.</p>\n");
 
             for (String dotnetRt : dotnetRts) {
                 if (!jvmModeRts.isEmpty()) {
@@ -356,6 +373,14 @@ public class GenerateReport implements Callable<Integer> {
                 }
             }
         }
+
+        // ── Workload simulation ──
+        // Closed-form models that translate per-runtime metrics into
+        // synthetic workload outcomes (serverless cold-start tax,
+        // long-running SLO-compliant throughput density). The goal is
+        // to surface which runtime fits which deployment archetype,
+        // rather than just ranking individual metrics.
+        renderSimulationSection(sb, runtimes, stats);
 
         // ── Native closed-world analysis ──
         // Statistics emitted by GraalVM/Mandrel native-image during
@@ -451,21 +476,31 @@ public class GenerateReport implements Callable<Integer> {
                                List<String> jvmRts,
                                Map<String, Map<String, MetricStats>> stats,
                                Map<String, Double> budgetMib) {
-        CategoryResult cat = computeCategoryWinner(dotnetRt, jvmRts, stats);
+        CategoryResult cat            = computeCategoryWinner(dotnetRt, jvmRts, stats, METRICS);
+        CategoryResult catEfficiency  = computeCategoryWinner(dotnetRt, jvmRts, stats, EFFICIENCY_ORDERED_METRICS);
 
         sb.append("<h3>").append(esc(dotnetRt)).append(" vs ").append(esc(categoryLabel))
           .append(" Quarkus variants</h3>\n");
 
-        // Banner with overall winner and per-side metric counts. Side
-        // label "Quarkus (JVM-mode)" or "Quarkus (Native)" rather than
-        // a single runtime name — the side is the category, not a
-        // specific runtime.
+        // Two banners: the canonical importance ordering (table-row order),
+        // and an efficiency-first alternate ordering (rps/MiB → TTFR →
+        // throughput → RSS-under-load). The side label "Quarkus (JVM-mode)"
+        // or "Quarkus (Native)" reflects the category, not a specific runtime.
         String otherSideLabel = "Quarkus (" + categoryLabel + ")";
+        renderVerdictBanner(sb, "Overall winner",            cat,           dotnetRt, otherSideLabel);
+        renderVerdictBanner(sb, "Efficiency-weighted winner (rps/MiB → TTFR → throughput → RSS load)",
+                            catEfficiency, dotnetRt, otherSideLabel);
+
+        renderCompareTable(sb, dotnetRt, jvmRts, stats, budgetMib);
+    }
+
+    private static void renderVerdictBanner(StringBuilder sb, String label, CategoryResult cat,
+                                            String dotnetRt, String otherSideLabel) {
         sb.append("<p class=\"verdict ");
         if (cat.winnerSide == WinnerSide.DOTNET) sb.append("verdict-dotnet");
         else if (cat.winnerSide == WinnerSide.OTHER) sb.append("verdict-other");
         else sb.append("verdict-tie");
-        sb.append("\">Overall winner: <strong>");
+        sb.append("\">").append(esc(label)).append(": <strong>");
         sb.append(switch (cat.winnerSide) {
             case DOTNET -> esc(dotnetRt);
             case OTHER  -> esc(otherSideLabel);
@@ -479,8 +514,6 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("; tiebreaker: ");
         sb.append(cat.tiebreakerMetric == null ? "none — fully tied" : esc(cat.tiebreakerMetric));
         sb.append(")</span></p>\n");
-
-        renderCompareTable(sb, dotnetRt, jvmRts, stats, budgetMib);
     }
 
     /**
@@ -584,6 +617,169 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("</tbody></table></div>\n");
     }
 
+    // ── Workload simulation ────────────────────────────────────────────────
+    // Closed-form models. The serverless model assumes a stream of N
+    // invocations with cold-start probability p_cold; cost is the
+    // expected memory-time integral per invocation. The long-running
+    // model assumes a fixed target rps over T hours, with each instance
+    // running at some utilization fraction of its measured capacity;
+    // SLO compliance is degraded linearly past the target latency,
+    // reaching zero at 2× the target. Both produce a single comparable
+    // score that's robust to small noise but explainable from the
+    // inputs printed alongside.
+
+    /** Default workload params — keep in sync with the description text. */
+    record ServerlessParams(long invocations, double pCold) {
+        static final ServerlessParams DEFAULT = new ServerlessParams(1_000_000L, 0.20);
+    }
+    record LongRunningParams(double targetRps, double durationHours,
+                             double sloMaxMs, double utilization) {
+        static final LongRunningParams DEFAULT =
+            new LongRunningParams(10_000.0, 24.0, 100.0, 0.80);
+    }
+
+    record ServerlessResult(String runtime, double warmCostMibMs, double coldTaxMibMs,
+                            double totalGbSeconds) {}
+
+    record LongRunningResult(String runtime, double sloCompliance, double effectiveRps,
+                             int instances, double totalMemoryMib, double rpsPerGbHour) {}
+
+    static ServerlessResult simServerless(String runtime,
+                                          MetricStats ttfr, MetricStats rss,
+                                          MetricStats latencyAvg, ServerlessParams p) {
+        if (missing(ttfr) || missing(rss) || missing(latencyAvg)) return null;
+        double warmCost  = latencyAvg.mean * rss.mean;             // MiB·ms / invocation
+        double coldExtra = ttfr.mean * rss.mean;                   // MiB·ms extra / cold
+        double expected  = warmCost + p.pCold * coldExtra;          // MiB·ms / invocation
+        double totalGbSeconds = (expected * p.invocations) / 1024.0 / 1000.0;
+        return new ServerlessResult(runtime, warmCost, p.pCold * coldExtra, totalGbSeconds);
+    }
+
+    static LongRunningResult simLongRunning(String runtime,
+                                            MetricStats throughput, MetricStats rssLoad,
+                                            MetricStats latencyMax, LongRunningParams p) {
+        if (missing(throughput) || missing(rssLoad)) return null;
+        double slo = 1.0;
+        if (!missing(latencyMax)) {
+            double overshoot = Math.max(0.0, latencyMax.mean - p.sloMaxMs);
+            slo = Math.max(0.0, 1.0 - overshoot / p.sloMaxMs); // 1 at SLO, 0 at 2×SLO
+        }
+        double effectiveRps = throughput.mean * slo;
+        int instances = (int) Math.ceil(p.targetRps / (throughput.mean * p.utilization));
+        if (instances < 1) instances = 1;
+        double totalMemoryMib = instances * rssLoad.mean;
+        double gbHours = (totalMemoryMib / 1024.0) * p.durationHours;
+        double totalRequests = effectiveRps * 3600.0 * p.durationHours;
+        double rpsPerGbHour = gbHours == 0 ? Double.NaN : totalRequests / gbHours;
+        return new LongRunningResult(runtime, slo, effectiveRps, instances,
+                                     totalMemoryMib, rpsPerGbHour);
+    }
+
+    static boolean missing(MetricStats s) {
+        return s == null || s.n == 0 || Double.isNaN(s.mean);
+    }
+
+    void renderSimulationSection(StringBuilder sb, List<String> runtimes,
+                                 Map<String, Map<String, MetricStats>> stats) {
+        ServerlessParams sp = ServerlessParams.DEFAULT;
+        LongRunningParams lp = LongRunningParams.DEFAULT;
+
+        sb.append("<h2>Workload simulation</h2>\n");
+        sb.append("<p class=\"hint\">Closed-form models that translate per-runtime metrics into deployment-archetype outcomes. " +
+                  "Inputs come from the measured columns in the per-runtime summary; the math is shown alongside the score so readers can sanity-check it.</p>\n");
+
+        // Serverless
+        sb.append("<h3>Serverless function</h3>\n");
+        sb.append("<p class=\"hint\">").append(String.format(Locale.ROOT,
+            "Simulated workload: <strong>%,d invocations</strong>, cold-start probability <strong>%.0f%%</strong>. " +
+            "Per-invocation cost = avg latency × RSS-after-first-request (warm) + p<sub>cold</sub> × TTFR × RSS (cold tax). " +
+            "Result is total billable GB·seconds; <strong>lower is better</strong>.",
+            sp.invocations, sp.pCold * 100.0)).append("</p>\n");
+
+        List<ServerlessResult> srvResults = new ArrayList<>();
+        for (String r : runtimes) {
+            Map<String, MetricStats> m = stats.getOrDefault(r, Map.of());
+            ServerlessResult res = simServerless(r,
+                m.get("ttfr_ms"), m.get("rss_first_request_mib"), m.get("latency_avg_ms"), sp);
+            if (res != null) srvResults.add(res);
+        }
+        srvResults.sort((a, b) -> Double.compare(a.totalGbSeconds, b.totalGbSeconds));
+        renderServerlessTable(sb, srvResults);
+
+        // Long-running
+        sb.append("<h3>Long-running service</h3>\n");
+        sb.append("<p class=\"hint\">").append(String.format(Locale.ROOT,
+            "Simulated workload: <strong>%,.0f rps for %.0f hours</strong>, instances pinned to <strong>%.0f%% utilization</strong>, " +
+            "SLO target latency <strong>%.0f ms</strong> (max-latency proxy: full credit at SLO, zero credit at 2×SLO, linear in between). " +
+            "Score = SLO-compliant requests served per GB·hour of cluster memory; <strong>higher is better</strong>.",
+            lp.targetRps, lp.durationHours, lp.utilization * 100.0, lp.sloMaxMs)).append("</p>\n");
+
+        List<LongRunningResult> lrResults = new ArrayList<>();
+        for (String r : runtimes) {
+            Map<String, MetricStats> m = stats.getOrDefault(r, Map.of());
+            LongRunningResult res = simLongRunning(r,
+                m.get("load_throughput_rps"), m.get("load_rss_mib"), m.get("latency_max_ms"), lp);
+            if (res != null) lrResults.add(res);
+        }
+        lrResults.sort((a, b) -> Double.compare(b.rpsPerGbHour, a.rpsPerGbHour));
+        renderLongRunningTable(sb, lrResults);
+    }
+
+    void renderServerlessTable(StringBuilder sb, List<ServerlessResult> rs) {
+        sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
+        sb.append("<thead><tr><th>Rank</th><th>Runtime</th>")
+          .append("<th>Warm cost<br><span class=\"unit\">MiB·ms / req</span></th>")
+          .append("<th>Cold tax<br><span class=\"unit\">MiB·ms / req</span></th>")
+          .append("<th>Total<br><span class=\"unit\">GB·seconds</span></th>")
+          .append("<th>Ratio vs winner</th>")
+          .append("</tr></thead>\n<tbody>\n");
+        double best = rs.isEmpty() ? Double.NaN : rs.get(0).totalGbSeconds;
+        for (int i = 0; i < rs.size(); i++) {
+            ServerlessResult r = rs.get(i);
+            String cls = (i == 0) ? "win" : "";
+            sb.append("<tr><td class=\"").append(cls).append("\">").append(i + 1).append("</td>")
+              .append("<th class=\"rt\">").append(esc(r.runtime)).append("</th>")
+              .append("<td>").append(String.format(Locale.ROOT, "%,.0f", r.warmCostMibMs)).append("</td>")
+              .append("<td>").append(String.format(Locale.ROOT, "%,.0f", r.coldTaxMibMs)).append("</td>")
+              .append("<td class=\"").append(cls).append("\">")
+                .append(String.format(Locale.ROOT, "%,.0f", r.totalGbSeconds)).append("</td>")
+              .append("<td>").append(i == 0 ? "1.00×" :
+                  String.format(Locale.ROOT, "%.2f×", r.totalGbSeconds / best)).append("</td>")
+              .append("</tr>\n");
+        }
+        sb.append("</tbody></table></div>\n");
+    }
+
+    void renderLongRunningTable(StringBuilder sb, List<LongRunningResult> rs) {
+        sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
+        sb.append("<thead><tr><th>Rank</th><th>Runtime</th>")
+          .append("<th>SLO compliance</th>")
+          .append("<th>Effective<br><span class=\"unit\">rps</span></th>")
+          .append("<th>Instances<br>required</th>")
+          .append("<th>Cluster RSS<br><span class=\"unit\">MiB</span></th>")
+          .append("<th>Score<br><span class=\"unit\">SLO-rps / GB·hour</span></th>")
+          .append("<th>Ratio vs winner</th>")
+          .append("</tr></thead>\n<tbody>\n");
+        double best = rs.isEmpty() ? Double.NaN : rs.get(0).rpsPerGbHour;
+        for (int i = 0; i < rs.size(); i++) {
+            LongRunningResult r = rs.get(i);
+            String cls = (i == 0) ? "win" : "";
+            sb.append("<tr><td class=\"").append(cls).append("\">").append(i + 1).append("</td>")
+              .append("<th class=\"rt\">").append(esc(r.runtime)).append("</th>")
+              .append("<td>").append(String.format(Locale.ROOT, "%.0f%%", r.sloCompliance * 100)).append("</td>")
+              .append("<td>").append(String.format(Locale.ROOT, "%,.0f", r.effectiveRps)).append("</td>")
+              .append("<td>").append(r.instances).append("</td>")
+              .append("<td>").append(String.format(Locale.ROOT, "%,.0f", r.totalMemoryMib)).append("</td>")
+              .append("<td class=\"").append(cls).append("\">")
+                .append(Double.isNaN(r.rpsPerGbHour) ? "—" :
+                        String.format(Locale.ROOT, "%,.0f", r.rpsPerGbHour)).append("</td>")
+              .append("<td>").append(Double.isNaN(r.rpsPerGbHour) || i == 0 ? "1.00×" :
+                  String.format(Locale.ROOT, "%.2f×", r.rpsPerGbHour / best)).append("</td>")
+              .append("</tr>\n");
+        }
+        sb.append("</tbody></table></div>\n");
+    }
+
     static String formatCount(MetricStats s) {
         if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
         return String.format(Locale.ROOT, "%,d", (long) s.mean);
@@ -622,15 +818,16 @@ public class GenerateReport implements Callable<Integer> {
      * matches the overall winner — i.e. the metric that broke the tie.
      */
     static CategoryResult computeCategoryWinner(String dotnetRt, List<String> otherRts,
-                                                Map<String, Map<String, MetricStats>> stats) {
+                                                Map<String, Map<String, MetricStats>> stats,
+                                                List<MetricDef> orderedMetrics) {
         int dotnetWins = 0, otherWins = 0, ties = 0;
         long dotnetScore = 0L, otherScore = 0L;
         String firstMetricDotnetWon = null;
         String firstMetricOtherWon  = null;
 
-        for (int i = 0; i < METRICS.size(); i++) {
-            MetricDef md = METRICS.get(i);
-            long weight = 1L << (METRICS.size() - 1 - i); // 2^(N-1-i)
+        for (int i = 0; i < orderedMetrics.size(); i++) {
+            MetricDef md = orderedMetrics.get(i);
+            long weight = 1L << (orderedMetrics.size() - 1 - i); // 2^(N-1-i)
 
             MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
             // Best mean among the other side for this metric.

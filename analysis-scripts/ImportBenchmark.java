@@ -9,12 +9,18 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.nio.file.*;
 import java.sql.*;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Imports a qDup benchmark output directory (the value passed to
@@ -52,36 +58,88 @@ public class ImportBenchmark implements Callable<Integer> {
     @Option(names = "--note", description = "Optional human-readable note to attach to the run")
     String note;
 
+    @Option(names = "--enrich-latency-for-run",
+            description = "Don't import a new run; instead, parse wrk-*.log files in the results dir " +
+                          "and add per-iteration latency metrics to the existing run with this id. " +
+                          "Used to retrofit pre-existing runs once the parser landed.")
+    Long enrichLatencyForRun;
+
     public static void main(String[] args) {
         System.exit(new CommandLine(new ImportBenchmark()).execute(args));
     }
 
     @Override
     public Integer call() throws Exception {
-        Path metricsFile = results.resolve("target-host/metrics.json");
-        if (!Files.exists(metricsFile)) {
-            System.err.println("ERROR: metrics.json not found at " + metricsFile);
-            return 1;
-        }
-
-        JsonNode json = new ObjectMapper().readTree(metricsFile.toFile());
         Path dbDir = Paths.get(dbPath).toAbsolutePath().getParent();
         if (dbDir != null) Files.createDirectories(dbDir);
 
         try (Connection conn = DriverManager.getConnection("jdbc:h2:" + Paths.get(dbPath).toAbsolutePath())) {
             initSchema(conn);
 
+            if (enrichLatencyForRun != null) {
+                List<String> runtimes = listRuntimesForRun(conn, enrichLatencyForRun);
+                if (runtimes.isEmpty()) {
+                    System.err.println("ERROR: no runtimes found for run_id=" + enrichLatencyForRun);
+                    return 1;
+                }
+                int n = lookupNumIterations(conn, enrichLatencyForRun);
+                int latencyRows = insertWrkLatency(conn, enrichLatencyForRun, runtimes, n);
+                System.out.printf("Enriched run_id=%d  runtimes=%d  latency_rows=%d  source=%s%n",
+                    enrichLatencyForRun, runtimes.size(), latencyRows, results.resolve("target-host"));
+                exportSql(conn);
+                return 0;
+            }
+
+            Path metricsFile = results.resolve("target-host/metrics.json");
+            if (!Files.exists(metricsFile)) {
+                System.err.println("ERROR: metrics.json not found at " + metricsFile);
+                return 1;
+            }
+            JsonNode json = new ObjectMapper().readTree(metricsFile.toFile());
+
             long runId = insertRun(conn, json);
             int runtimeCount = insertRuntimeResults(conn, runId, json);
             int metricCount = insertIterationMetrics(conn, runId, json);
+            int latencyRows = insertWrkLatency(conn, runId,
+                listRuntimeNames(json),
+                json.path("config").path("num_iterations").asInt(0));
 
             System.out.printf(
-                "Imported run_id=%d  runtimes=%d  metric_rows=%d  source=%s%n",
-                runId, runtimeCount, metricCount, metricsFile);
+                "Imported run_id=%d  runtimes=%d  metric_rows=%d  latency_rows=%d  source=%s%n",
+                runId, runtimeCount, metricCount, latencyRows, metricsFile);
 
             exportSql(conn);
         }
         return 0;
+    }
+
+    static List<String> listRuntimeNames(JsonNode json) {
+        List<String> out = new ArrayList<>();
+        JsonNode r = json.path("results");
+        if (r.isObject()) r.fieldNames().forEachRemaining(out::add);
+        return out;
+    }
+
+    static List<String> listRuntimesForRun(Connection conn, long runId) throws SQLException {
+        List<String> out = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT runtime_name FROM runtime_results WHERE run_id=?")) {
+            ps.setLong(1, runId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) out.add(rs.getString(1));
+            }
+        }
+        return out;
+    }
+
+    static int lookupNumIterations(Connection conn, long runId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT num_iterations FROM runs WHERE run_id=?")) {
+            ps.setLong(1, runId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
     }
 
     // ── Schema ──────────────────────────────────────────────────────────────
@@ -447,6 +505,100 @@ public class ImportBenchmark implements Callable<Integer> {
         ps.setInt(3, 0);
         ps.setString(4, metric);
         ps.setDouble(5, d);
+        ps.setString(6, unit);
+        ps.executeUpdate();
+        return 1;
+    }
+
+    // ── wrk latency parsing ─────────────────────────────────────────────────
+
+    /**
+     * Reads target-host/wrk-{runtime}-{i}.log for each runtime/iteration and
+     * adds per-iteration latency rows to iteration_metrics: avg, stdev, max,
+     * and the percent-within-1-stdev value (a tail-heaviness indicator —
+     * 68.27% for a true normal distribution; higher = tighter body, lower =
+     * heavier tail).
+     *
+     * Missing or malformed logs are silently skipped. Pre-existing rows for
+     * (run_id, runtime, iteration, metric_name) are deleted first so this
+     * is idempotent for the same run_id.
+     */
+    int insertWrkLatency(Connection conn, long runId, List<String> runtimes, int numIterations)
+            throws SQLException {
+        Path host = this.results.resolve("target-host");
+        if (!Files.isDirectory(host)) return 0;
+
+        // Idempotency: clear any prior latency rows for this run_id before
+        // re-inserting. Lets enrich-latency-for-run be called multiple times.
+        try (PreparedStatement del = conn.prepareStatement(
+                "DELETE FROM iteration_metrics WHERE run_id=? AND metric_name LIKE 'latency_%'")) {
+            del.setLong(1, runId);
+            del.executeUpdate();
+        }
+
+        int total = 0;
+        String sql = "INSERT INTO iteration_metrics " +
+                "(run_id, runtime_name, iteration, metric_name, metric_value, unit) " +
+                "VALUES (?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (String runtime : runtimes) {
+                int n = numIterations > 0 ? numIterations : 32; // probe up to 32 if unknown
+                for (int i = 0; i < n; i++) {
+                    Path p = host.resolve("wrk-" + runtime + "-" + i + ".log");
+                    if (!Files.isRegularFile(p)) continue;
+                    WrkLatency l = parseWrkLatency(p);
+                    if (l == null) continue;
+                    total += addOne(ps, runId, runtime, i, "latency_avg_ms",     l.avgMs,         "ms");
+                    total += addOne(ps, runId, runtime, i, "latency_stdev_ms",   l.stdevMs,       "ms");
+                    total += addOne(ps, runId, runtime, i, "latency_max_ms",     l.maxMs,         "ms");
+                    total += addOne(ps, runId, runtime, i, "latency_within_stdev_pct",
+                                    l.withinStdevPct, "%");
+                }
+            }
+        }
+        return total;
+    }
+
+    record WrkLatency(double avgMs, double stdevMs, double maxMs, double withinStdevPct) {}
+
+    /** Pattern matching wrk's "Latency  <avg>  <stdev>  <max>  <pct>%" row. */
+    private static final Pattern WRK_LATENCY_ROW = Pattern.compile(
+        "^\\s*Latency\\s+([\\d.]+)(us|ms|s)\\s+([\\d.]+)(us|ms|s)\\s+([\\d.]+)(us|ms|s)\\s+([\\d.]+)%");
+
+    static WrkLatency parseWrkLatency(Path p) {
+        try (BufferedReader br = Files.newBufferedReader(p)) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                Matcher m = WRK_LATENCY_ROW.matcher(line);
+                if (m.find()) {
+                    return new WrkLatency(
+                        toMs(Double.parseDouble(m.group(1)), m.group(2)),
+                        toMs(Double.parseDouble(m.group(3)), m.group(4)),
+                        toMs(Double.parseDouble(m.group(5)), m.group(6)),
+                        Double.parseDouble(m.group(7)));
+                }
+            }
+        } catch (IOException ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    static double toMs(double v, String unit) {
+        return switch (unit) {
+            case "us" -> v / 1000.0;
+            case "s"  -> v * 1000.0;
+            default   -> v; // ms
+        };
+    }
+
+    static int addOne(PreparedStatement ps, long runId, String runtime, int iter,
+                      String metric, double value, String unit) throws SQLException {
+        ps.setLong(1, runId);
+        ps.setString(2, runtime);
+        ps.setInt(3, iter);
+        ps.setString(4, metric);
+        ps.setDouble(5, value);
         ps.setString(6, unit);
         ps.executeUpdate();
         return 1;
