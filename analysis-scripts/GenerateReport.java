@@ -376,6 +376,16 @@ public class GenerateReport implements Callable<Integer> {
             }
         }
 
+        // ── Statistical comparisons (Java/Quarkus vs dotnet) ──
+        // Per-metric pairwise tables exposing Cohen's d and Welch's
+        // two-tailed t-test p-value as visible cells (the per-category
+        // tables above carry the same numbers as tooltips on the ratio
+        // cell — this section makes them legible for serialised reading
+        // and matches the markdown-style results docs.
+        if (!dotnetRts.isEmpty() && !jvmFamilyRts.isEmpty()) {
+            renderStatisticalComparisons(sb, dotnetRts, jvmFamilyRts, stats);
+        }
+
         // ── Workload simulation ──
         // Closed-form models that translate per-runtime metrics into
         // synthetic workload outcomes (serverless cold-start tax,
@@ -619,6 +629,114 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("</tbody></table></div>\n");
     }
 
+    // ── Statistical comparisons (Java/Quarkus vs dotnet) ──────────────────
+
+    /**
+     * Per-metric pairwise tables. For each metric, one row per (dotnet, jvm)
+     * pair showing the two means, Cohen's d (Quarkus - dotnet pooled-stddev
+     * effect size), and the two-tailed Welch p-value with significance
+     * highlighting. Skips metrics that are mostly zero (error counters)
+     * because d/p there are uninformative.
+     */
+    void renderStatisticalComparisons(StringBuilder sb,
+                                      List<String> dotnetRts, List<String> jvmFamilyRts,
+                                      Map<String, Map<String, MetricStats>> stats) {
+        sb.append("<h2>Statistical comparisons (Java/Quarkus vs dotnet)</h2>\n");
+        sb.append("<p class=\"hint\">Per-metric pairwise comparisons. " +
+                  "Cohen's d sign reflects (Quarkus − dotnet): positive = Quarkus higher, negative = dotnet higher. " +
+                  "Welch's two-tailed t-test does not assume equal variances. " +
+                  "<span class=\"p-very-sig\">p&nbsp;&lt;&nbsp;0.001</span> · " +
+                  "<span class=\"p-sig\">p&nbsp;&lt;&nbsp;0.05</span> · " +
+                  "<span class=\"p-noisy\">not significant</span>.</p>\n");
+
+        for (MetricDef md : METRICS) {
+            // Skip build_time_s (deploy concern, not runtime perf — and the
+            // dotnet vs native delta is huge but uninformative) and the
+            // mostly-zero error counters where d/p are degenerate.
+            if (md.name.equals("build_time_s")
+                    || md.name.equals("load_connection_errors")
+                    || md.name.equals("load_request_timeouts"))
+                continue;
+
+            // Collect rows for pairs that have data on both sides.
+            List<Object[]> rows = new ArrayList<>();
+            for (String dotnet : dotnetRts) {
+                for (String jvm : jvmFamilyRts) {
+                    MetricStats d = stats.getOrDefault(dotnet, Map.of()).get(md.name);
+                    MetricStats q = stats.getOrDefault(jvm,    Map.of()).get(md.name);
+                    if (d == null || q == null || d.stddev == null || q.stddev == null) continue;
+                    if (d.n < 2 || q.n < 2) continue;
+                    double cd = StatsHelper.cohensD(q.mean, q.stddev, q.n,
+                                                   d.mean, d.stddev, d.n);
+                    double p  = StatsHelper.welchPValue(q.mean, q.stddev, q.n,
+                                                        d.mean, d.stddev, d.n);
+                    rows.add(new Object[] { dotnet, jvm, q, d, cd, p });
+                }
+            }
+            if (rows.isEmpty()) continue;
+
+            sb.append("<h3>").append(esc(md.label))
+              .append(" <span class=\"unit\">(").append(esc(md.unit)).append(")</span>")
+              .append(" <span class=\"dir\">— ").append(md.lowerIsBetter ? "lower" : "higher")
+              .append(" is better</span></h3>\n");
+            sb.append("<div class=\"scroll\"><table class=\"compare\">\n");
+            sb.append("<thead><tr>")
+              .append("<th>Comparison</th>")
+              .append("<th>dotnet mean</th>")
+              .append("<th>Quarkus mean</th>")
+              .append("<th>Cohen's d</th>")
+              .append("<th>Welch p</th>")
+              .append("</tr></thead>\n<tbody>\n");
+
+            for (Object[] r : rows) {
+                String dotnet = (String) r[0];
+                String jvm    = (String) r[1];
+                MetricStats q = (MetricStats) r[2];
+                MetricStats d = (MetricStats) r[3];
+                double cd     = (Double) r[4];
+                double p      = (Double) r[5];
+                sb.append("<tr>")
+                  .append("<td>").append(esc(dotnet)).append(" vs ").append(esc(jvm)).append("</td>")
+                  .append("<td>").append(fmtDouble(d.mean, md.decimals)).append("</td>")
+                  .append("<td>").append(fmtDouble(q.mean, md.decimals)).append("</td>")
+                  .append("<td class=\"").append(cohensDCls(cd)).append("\">").append(formatCohensD(cd)).append("</td>")
+                  .append("<td class=\"").append(pValueCls(p)).append("\">").append(formatPValueWithMarker(p)).append("</td>")
+                  .append("</tr>\n");
+            }
+            sb.append("</tbody></table></div>\n");
+        }
+    }
+
+    static String formatCohensD(double d) {
+        if (Double.isNaN(d)) return "—";
+        String label = StatsHelper.cohensDLabel(d);
+        String num = String.format(Locale.ROOT, "%.2f", d);
+        return label.isEmpty() ? num : num + " <span class=\"d-label\">" + label + "</span>";
+    }
+
+    static String cohensDCls(double d) {
+        if (Double.isNaN(d)) return "";
+        double a = Math.abs(d);
+        if (a < 0.2) return "d-negligible";
+        if (a < 0.5) return "d-small";
+        if (a < 0.8) return "d-medium";
+        return "d-large";
+    }
+
+    static String formatPValueWithMarker(double p) {
+        if (Double.isNaN(p)) return "—";
+        String marker = p < 0.05 ? " ✓" : " ✗";
+        if (p < 0.0001) return "&lt;0.0001" + marker;
+        return String.format(Locale.ROOT, "%.4f%s", p, marker);
+    }
+
+    static String pValueCls(double p) {
+        if (Double.isNaN(p)) return "";
+        if (p < 0.001) return "p-very-sig";
+        if (p < 0.05)  return "p-sig";
+        return "p-noisy";
+    }
+
     // ── Workload simulation ────────────────────────────────────────────────
     // Closed-form models. The serverless model assumes a stream of N
     // invocations with cold-start probability p_cold; cost is the
@@ -712,7 +830,8 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("<h3>Long-running service</h3>\n");
         sb.append("<p class=\"hint\">").append(String.format(Locale.ROOT,
             "Simulated workload: <strong>%,.0f rps for %.0f hours</strong>, instances pinned to <strong>%.0f%% utilization</strong>, " +
-            "SLO target latency <strong>%.0f ms</strong> (max-latency proxy: full credit at SLO, zero credit at 2×SLO, linear in between). " +
+            "Service Level Objective (SLO) target latency <strong>%.0f ms</strong> — i.e. the maximum request latency the service commits to. " +
+            "The simulator uses the measured max latency as a proxy: full credit at the SLO, zero credit at 2× the SLO, linear in between. " +
             "Score = SLO-compliant requests served per GB·hour of cluster memory; <strong>higher is better</strong>.",
             lp.targetRps, lp.durationHours, lp.utilization * 100.0, lp.sloMaxMs)).append("</p>\n");
 
@@ -959,9 +1078,12 @@ public class GenerateReport implements Callable<Integer> {
 
     /**
      * Pretty-print other.mean / baseline.mean with a × suffix. The cell carries
-     * a tooltip with Cohen's d (effect size) and the two-tailed Welch p-value,
-     * and a class flagging significance (p &lt; 0.05) so the reader can tell
-     * "different mean" apart from "different and statistically significant".
+     * a tooltip with Cohen's d (effect size) and the two-tailed Welch p-value
+     * for hover-on-demand statistical context. The dedicated "Statistical
+     * comparisons" section below visualises significance per-metric — keeping
+     * a colour cue on the ratio cell here would compete with the row-winner
+     * green and fire on nearly every cell, since n=7 with tight CV% makes
+     * almost every cross-runtime comparison statistically significant.
      */
     static String formatRatio(MetricStats baseline, MetricStats other) {
         if (baseline == null || other == null) return "<span class=\"na\">—</span>";
@@ -970,13 +1092,11 @@ public class GenerateReport implements Callable<Integer> {
         if (baseline.mean == 0) return "<span class=\"na\">—</span>";
         double ratio = other.mean / baseline.mean;
         int d = ratio < 1 ? 3 : (ratio < 10 ? 2 : 1);
-        StringBuilder out = new StringBuilder();
         String tooltip = ratioTooltip(baseline, other);
-        String cls = ratioSignificanceClass(baseline, other);
-        out.append("<span");
-        if (!tooltip.isEmpty()) out.append(" title=\"").append(esc(tooltip)).append("\"");
-        if (!cls.isEmpty())     out.append(" class=\"").append(cls).append("\"");
-        out.append(">").append(fmtDouble(ratio, d)).append("×</span>");
+        StringBuilder out = new StringBuilder();
+        if (!tooltip.isEmpty()) out.append("<span title=\"").append(esc(tooltip)).append("\">");
+        out.append(fmtDouble(ratio, d)).append("×");
+        if (!tooltip.isEmpty()) out.append("</span>");
         return out.toString();
     }
 
@@ -996,15 +1116,6 @@ public class GenerateReport implements Callable<Integer> {
             s.append("Welch p = ").append(formatPValue(p));
         }
         return s.toString();
-    }
-
-    private static String ratioSignificanceClass(MetricStats a, MetricStats b) {
-        if (a == null || b == null || a.stddev == null || b.stddev == null) return "";
-        double p = StatsHelper.welchPValue(b.mean, b.stddev, b.n, a.mean, a.stddev, a.n);
-        if (Double.isNaN(p)) return "";
-        if (p < 0.001) return "p-very-sig";
-        if (p < 0.05)  return "p-sig";
-        return "p-noisy";
     }
 
     static String formatPValue(double p) {
@@ -1190,6 +1301,12 @@ public class GenerateReport implements Callable<Integer> {
           .cv-stable   { color: #2a8c2f; }
           .cv-moderate { color: #b58a14; }
           .cv-noisy    { color: #c23b22; font-weight: 500; }
+          .d-negligible { color: #888; }
+          .d-small      { color: #555; }
+          .d-medium     { color: #b58a14; font-weight: 500; }
+          .d-large      { color: #2a8c2f; font-weight: 500; }
+          .d-label      { color: #888; font-weight: normal; font-size: 0.85em; }
+          .dir          { color: #666; font-weight: normal; font-size: 0.85em; }
           .p-very-sig { background: #B8E0BA60; padding: 0 0.2em; border-radius: 3px; }
           .p-sig      { background: #B8E0BA30; padding: 0 0.2em; border-radius: 3px; }
           .p-noisy    { color: #999; }
