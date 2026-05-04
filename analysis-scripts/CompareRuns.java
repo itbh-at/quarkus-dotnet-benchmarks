@@ -1,6 +1,8 @@
 ///usr/bin/env jbang "$0" "$@" ; exit $?
 //DEPS com.h2database:h2:2.3.232
 //DEPS info.picocli:picocli:4.7.5
+//DEPS org.apache.commons:commons-math3:3.6.1
+//SOURCES StatsHelper.java
 
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -225,8 +227,13 @@ public class CompareRuns implements Callable<Integer> {
 
         // Per-runtime tables.
         sb.append("<h2>Per-runtime comparison</h2>\n");
-        sb.append("<p class=\"hint\">Cells show mean ± stddev. Δ% is target relative to base. " +
-                  "<span class=\"win-key\">Green</span> marks the better mean per row (per metric direction); " +
+        sb.append("<p class=\"hint\">Cells show mean ± stddev with CV% (run-to-run consistency: " +
+                  "<span class=\"cv-stable\">&lt;5% stable</span> · " +
+                  "<span class=\"cv-moderate\">5-15% moderate</span> · " +
+                  "<span class=\"cv-noisy\">&gt;15% noisy</span>). Hover a cell for the 95% CI. " +
+                  "Δ% is target relative to base. d is Cohen's effect size; Welch p is the two-tailed p-value " +
+                  "(<span class=\"p-very-sig\">p&lt;0.001</span>, <span class=\"p-sig\">p&lt;0.05</span>). " +
+                  "<span class=\"win-key\">Green</span> marks the better mean per row; " +
                   "<span class=\"miss-key\">grey</span> marks rows where one side has no data.</p>\n");
         for (String r : allRuntimes) {
             Map<String, Stats> bs = baseStats.getOrDefault(r, Map.of());
@@ -236,7 +243,12 @@ public class CompareRuns implements Callable<Integer> {
               .append("<th>Metric</th>")
               .append("<th>Run #").append(baseMeta.get("run_id")).append("</th>")
               .append("<th>Run #").append(targetMeta.get("run_id")).append("</th>")
-              .append("<th>Δ</th><th>Δ%</th></tr></thead>\n<tbody>\n");
+              .append("<th>Δ</th><th>Δ%</th>")
+              .append("<th title=\"Cohen's d — pooled-stddev effect size, sign relative to base. ")
+              .append("Magnitude: &lt;0.2 negligible, 0.2-0.5 small, 0.5-0.8 medium, ≥0.8 large.\">d</th>")
+              .append("<th title=\"Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. ")
+              .append("Bold/highlighted when p &lt; 0.05.\">Welch p</th>")
+              .append("</tr></thead>\n<tbody>\n");
             for (MetricDef md : METRICS) {
                 Stats b = bs.get(md.name), t = ts.get(md.name);
                 String baseCls = "", targetCls = "";
@@ -259,11 +271,19 @@ public class CompareRuns implements Callable<Integer> {
                 if (b != null && t != null && b.mean != 0) {
                     double abs = t.mean - b.mean;
                     double pct = abs / Math.abs(b.mean) * 100.0;
+                    double d   = StatsHelper.cohensD(t.mean, t.stddev, t.n,
+                                                    b.mean, b.stddev, b.n);
+                    double p   = StatsHelper.welchPValue(t.mean, t.stddev, t.n,
+                                                         b.mean, b.stddev, b.n);
                     sb.append("<td>").append(formatAbs(abs, md.decimals)).append("</td>")
                       .append("<td class=\"").append(deltaCls(pct, md.lowerIsBetter)).append("\">")
-                      .append(formatDelta(pct)).append("</td>");
+                      .append(formatDelta(pct)).append("</td>")
+                      .append("<td class=\"").append(cohensDCls(d)).append("\">")
+                      .append(formatCohensD(d)).append("</td>")
+                      .append("<td class=\"").append(pValueCls(p)).append("\">")
+                      .append(formatPValue(p)).append("</td>");
                 } else {
-                    sb.append("<td>—</td><td>—</td>");
+                    sb.append("<td>—</td><td>—</td><td>—</td><td>—</td>");
                 }
                 sb.append("</tr>\n");
             }
@@ -277,11 +297,71 @@ public class CompareRuns implements Callable<Integer> {
     static String formatStats(Stats s, int decimals) {
         if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
         StringBuilder out = new StringBuilder();
+        // Tooltip with the 95% CI for the mean.
+        double half = StatsHelper.ci95HalfWidth(s.stddev, s.n);
+        boolean haveCI = !Double.isNaN(half);
+        if (haveCI) {
+            String ci = String.format(Locale.ROOT, "95%% CI [%s, %s]",
+                fmtNum(s.mean - half, 2), fmtNum(s.mean + half, 2));
+            out.append("<span title=\"").append(ci).append("\">");
+        }
         out.append(String.format(Locale.ROOT, "%,." + decimals + "f", s.mean));
         if (!Double.isNaN(s.stddev)) {
             out.append(" <span class=\"sd\">±").append(String.format(Locale.ROOT, "%." + decimals + "f", s.stddev)).append("</span>");
+            double cv = StatsHelper.cvPercent(s.mean, s.stddev);
+            if (!Double.isNaN(cv)) {
+                out.append(" <span class=\"cv ").append(cvCls(cv)).append("\">(CV ")
+                   .append(formatCv(cv)).append(")</span>");
+            }
         }
+        if (haveCI) out.append("</span>");
         return out.toString();
+    }
+
+    static String fmtNum(double v, int decimals) {
+        return String.format(Locale.ROOT, "%,." + decimals + "f", v);
+    }
+
+    static String formatCv(double cv) {
+        if (cv < 1)  return String.format(Locale.ROOT, "%.2f%%", cv);
+        if (cv < 10) return String.format(Locale.ROOT, "%.1f%%", cv);
+        return       String.format(Locale.ROOT, "%.0f%%", cv);
+    }
+
+    /** <5% stable, 5–15% moderate, >15% noisy. */
+    static String cvCls(double cv) {
+        if (cv < 5)  return "cv-stable";
+        if (cv < 15) return "cv-moderate";
+        return "cv-noisy";
+    }
+
+    static String formatCohensD(double d) {
+        if (Double.isNaN(d)) return "—";
+        String label = StatsHelper.cohensDLabel(d);
+        String num = String.format(Locale.ROOT, "%.2f", d);
+        return label.isEmpty() ? num : num + " <span class=\"d-label\">" + label + "</span>";
+    }
+
+    static String cohensDCls(double d) {
+        if (Double.isNaN(d)) return "";
+        double a = Math.abs(d);
+        if (a < 0.2) return "d-negligible";
+        if (a < 0.5) return "d-small";
+        if (a < 0.8) return "d-medium";
+        return "d-large";
+    }
+
+    static String formatPValue(double p) {
+        if (Double.isNaN(p)) return "—";
+        if (p < 0.0001) return "&lt;0.0001";
+        return String.format(Locale.ROOT, "%.4f", p);
+    }
+
+    static String pValueCls(double p) {
+        if (Double.isNaN(p)) return "";
+        if (p < 0.001) return "p-very-sig";
+        if (p < 0.05)  return "p-sig";
+        return "p-noisy";
     }
 
     static String formatAbs(double v, int decimals) {
@@ -330,6 +410,18 @@ public class CompareRuns implements Callable<Integer> {
           .delta-flat { color: #888; }
           .win-key  { background: #B8E0BA40; padding: 0 4px; border-radius: 3px; }
           .miss-key { background: #f0f0f0; padding: 0 4px; border-radius: 3px; }
+          .cv { font-size: 0.78em; }
+          .cv-stable   { color: #2a8c2f; }
+          .cv-moderate { color: #b58a14; }
+          .cv-noisy    { color: #c23b22; font-weight: 500; }
+          .d-negligible { color: #888; }
+          .d-small      { color: #555; }
+          .d-medium     { color: #b58a14; font-weight: 500; }
+          .d-large      { color: #2a8c2f; font-weight: 500; }
+          .d-label      { color: #888; font-weight: normal; font-size: 0.85em; }
+          .p-very-sig { background: #B8E0BA60; padding: 0 0.2em; border-radius: 3px; }
+          .p-sig      { background: #B8E0BA30; padding: 0 0.2em; border-radius: 3px; }
+          .p-noisy    { color: #999; }
         </style>
         """;
 }

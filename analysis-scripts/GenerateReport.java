@@ -2,6 +2,8 @@
 //DEPS com.h2database:h2:2.3.232
 //DEPS info.picocli:picocli:4.7.5
 //DEPS org.jfree:jfreechart:1.5.4
+//DEPS org.apache.commons:commons-math3:3.6.1
+//SOURCES StatsHelper.java
 
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
@@ -955,16 +957,60 @@ public class GenerateReport implements Callable<Integer> {
         return fmtDouble(s.mean, decimals);
     }
 
-    /** Pretty-print other.mean / baseline.mean with a × suffix. */
+    /**
+     * Pretty-print other.mean / baseline.mean with a × suffix. The cell carries
+     * a tooltip with Cohen's d (effect size) and the two-tailed Welch p-value,
+     * and a class flagging significance (p &lt; 0.05) so the reader can tell
+     * "different mean" apart from "different and statistically significant".
+     */
     static String formatRatio(MetricStats baseline, MetricStats other) {
         if (baseline == null || other == null) return "<span class=\"na\">—</span>";
         if (baseline.n == 0 || other.n == 0) return "<span class=\"na\">—</span>";
         if (Double.isNaN(baseline.mean) || Double.isNaN(other.mean)) return "<span class=\"na\">—</span>";
         if (baseline.mean == 0) return "<span class=\"na\">—</span>";
         double ratio = other.mean / baseline.mean;
-        // 3 decimals when sub-unit, 2 when modest, 1 when large.
         int d = ratio < 1 ? 3 : (ratio < 10 ? 2 : 1);
-        return fmtDouble(ratio, d) + "×";
+        StringBuilder out = new StringBuilder();
+        String tooltip = ratioTooltip(baseline, other);
+        String cls = ratioSignificanceClass(baseline, other);
+        out.append("<span");
+        if (!tooltip.isEmpty()) out.append(" title=\"").append(esc(tooltip)).append("\"");
+        if (!cls.isEmpty())     out.append(" class=\"").append(cls).append("\"");
+        out.append(">").append(fmtDouble(ratio, d)).append("×</span>");
+        return out.toString();
+    }
+
+    /** Tooltip text: "d=0.84 (large), Welch p=0.0012". */
+    private static String ratioTooltip(MetricStats a, MetricStats b) {
+        if (a == null || b == null || a.stddev == null || b.stddev == null) return "";
+        double d = StatsHelper.cohensD(b.mean, b.stddev, b.n, a.mean, a.stddev, a.n);
+        double p = StatsHelper.welchPValue(b.mean, b.stddev, b.n, a.mean, a.stddev, a.n);
+        StringBuilder s = new StringBuilder();
+        if (!Double.isNaN(d)) {
+            s.append("Cohen's d = ").append(String.format(Locale.ROOT, "%.2f", d));
+            String label = StatsHelper.cohensDLabel(d);
+            if (!label.isEmpty()) s.append(" (").append(label).append(")");
+        }
+        if (!Double.isNaN(p)) {
+            if (s.length() > 0) s.append(", ");
+            s.append("Welch p = ").append(formatPValue(p));
+        }
+        return s.toString();
+    }
+
+    private static String ratioSignificanceClass(MetricStats a, MetricStats b) {
+        if (a == null || b == null || a.stddev == null || b.stddev == null) return "";
+        double p = StatsHelper.welchPValue(b.mean, b.stddev, b.n, a.mean, a.stddev, a.n);
+        if (Double.isNaN(p)) return "";
+        if (p < 0.001) return "p-very-sig";
+        if (p < 0.05)  return "p-sig";
+        return "p-noisy";
+    }
+
+    static String formatPValue(double p) {
+        if (Double.isNaN(p)) return "—";
+        if (p < 0.0001) return "<0.0001";
+        return String.format(Locale.ROOT, "%.4f", p);
     }
 
     void appendMeta(StringBuilder sb, String label, Object value) {
@@ -975,21 +1021,53 @@ public class GenerateReport implements Callable<Integer> {
     }
 
     /**
-     * @param dominantN the run-wide iteration count surfaced in the table
-     *                  caption; if a cell has a different n we annotate it
-     *                  inline so the anomaly is visible.
+     * Cell content: <code>mean ± stddev (CV X%)</code>, with a tooltip
+     * carrying the 95% confidence interval. n is annotated inline only when
+     * it differs from the run-wide dominant count (so the anomaly is visible).
+     *
+     * @param dominantN run-wide iteration count surfaced in the table caption.
      */
     static String formatStats(MetricStats s, int decimals, int dominantN) {
         if (s == null || s.n == 0 || Double.isNaN(s.mean)) return "<span class=\"na\">—</span>";
         StringBuilder sb = new StringBuilder();
+        String tip = ciTooltip(s);
+        if (!tip.isEmpty()) sb.append("<span title=\"").append(esc(tip)).append("\">");
         sb.append(fmtDouble(s.mean, decimals));
         if (s.stddev != null && s.n >= 2) {
             sb.append(" <span class=\"sd\">± ").append(fmtDouble(s.stddev, decimals)).append("</span>");
+            double cv = StatsHelper.cvPercent(s.mean, s.stddev);
+            if (!Double.isNaN(cv)) {
+                sb.append(" <span class=\"cv ").append(cvClass(cv)).append("\">(CV ")
+                  .append(fmtCv(cv)).append(")</span>");
+            }
         }
         if (dominantN <= 0 || s.n != dominantN) {
             sb.append(" <span class=\"n\">(n=").append(s.n).append(")</span>");
         }
+        if (!tip.isEmpty()) sb.append("</span>");
         return sb.toString();
+    }
+
+    /** Tooltip "95% CI [lo, hi]" — width derived from t(n-1) × stddev/√n. */
+    private static String ciTooltip(MetricStats s) {
+        if (s == null || s.stddev == null || s.n < 2 || Double.isNaN(s.mean)) return "";
+        double half = StatsHelper.ci95HalfWidth(s.stddev, s.n);
+        if (Double.isNaN(half)) return "";
+        return String.format(Locale.ROOT, "95%% CI [%s, %s]",
+                fmtDouble(s.mean - half, 2), fmtDouble(s.mean + half, 2));
+    }
+
+    /** CV-percent magnitude class: <5% stable, 5–15% moderate, >15% noisy. */
+    private static String cvClass(double cv) {
+        if (cv < 5)  return "cv-stable";
+        if (cv < 15) return "cv-moderate";
+        return "cv-noisy";
+    }
+
+    private static String fmtCv(double cv) {
+        if (cv < 1)  return String.format(Locale.ROOT, "%.2f%%", cv);
+        if (cv < 10) return String.format(Locale.ROOT, "%.1f%%", cv);
+        return       String.format(Locale.ROOT, "%.0f%%", cv);
     }
 
     /**
@@ -1108,6 +1186,13 @@ public class GenerateReport implements Callable<Integer> {
           .sd { color: #888; }
           .n { color: #aaa; font-size: 0.8em; }
           .na { color: #aaa; }
+          .cv { font-size: 0.78em; }
+          .cv-stable   { color: #2a8c2f; }
+          .cv-moderate { color: #b58a14; }
+          .cv-noisy    { color: #c23b22; font-weight: 500; }
+          .p-very-sig { background: #B8E0BA60; padding: 0 0.2em; border-radius: 3px; }
+          .p-sig      { background: #B8E0BA30; padding: 0 0.2em; border-radius: 3px; }
+          .p-noisy    { color: #999; }
           .charts { display: flex; flex-wrap: wrap; gap: 1.5rem; }
           .charts figure { margin: 0; }
           .chart { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 4px; background: white; }
