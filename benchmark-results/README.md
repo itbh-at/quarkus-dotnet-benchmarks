@@ -5,6 +5,25 @@ shared via GitHub links. The full report set lives in the gitignored
 `reports/` directory on the developer's machine — only files surfaced here
 are intended for external links.
 
+## Viewing a report
+
+GitHub doesn't render HTML inline (clicking the file shows source code).
+Open a published report via [raw.githack][rgh] — a free CDN that serves
+repo HTML with the correct `Content-Type`:
+
+```
+https://raw.githack.com/itbh-at/quarkus-dotnet-benchmarks/main/benchmark-results/<filename>.html
+```
+
+For a stable link pinned to a specific commit (cached forever, immutable),
+use `rawcdn.githack.com` with a commit SHA:
+
+```
+https://rawcdn.githack.com/itbh-at/quarkus-dotnet-benchmarks/<sha>/benchmark-results/<filename>.html
+```
+
+[rgh]: https://raw.githack.com/
+
 ## Publishing a report
 
 Reports are copied here manually. Suggested filename convention so things
@@ -31,7 +50,7 @@ After copying:
 
 <!-- Add one row per published report. Newest at top. -->
 
-| Date       | File                                                                     | Configuration summary                                                           |
-| ---------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| 2026-05-02 | [2026-05-02-memory-constrained.html](2026-05-02-memory-constrained.html) | min heap 128 MiB, max heap 256 MiB, serial GC, eager to return memory to the OS |
-| 2026-05-03 | [2026-05-03-fixed-heap-size.html](2026-05-03-fixed-heap-size.html)       | fixed heap at 512 MiB, parallel GC,  eager to return memory to the OS           |
+| Date       | File                                                                                                                                                      | Configuration summary                                                           |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 2026-05-02 | [2026-05-02-memory-constrained.html](https://raw.githack.com/itbh-at/quarkus-dotnet-benchmarks/main/benchmark-results/2026-05-02-memory-constrained.html) | min heap 128 MiB, max heap 256 MiB, serial GC, eager to return memory to the OS |
+| 2026-05-03 | [2026-05-03-fixed-heap-size.html](https://raw.githack.com/itbh-at/quarkus-dotnet-benchmarks/main/benchmark-results/2026-05-03-fixed-heap-size.html)       | fixed heap at 512 MiB, parallel GC,  eager to return memory to the OS           |
