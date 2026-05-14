@@ -57,6 +57,13 @@ public class GenerateReport implements Callable<Integer> {
             description = "Output HTML file (default: reports/run-<id>-report.html)")
     Path output;
 
+    @Option(names = "--show-build-time",
+            description = "Include build-time metric in the report. Default: hidden — " +
+                          "build cost is a one-time CI concern, not a recurring runtime cost. " +
+                          "Use Quarkus Dev Mode for inner-loop development.",
+            defaultValue = "false")
+    boolean showBuildTime;
+
     public static void main(String[] args) {
         System.exit(new CommandLine(new GenerateReport()).execute(args));
     }
@@ -278,6 +285,18 @@ public class GenerateReport implements Callable<Integer> {
             .orElseThrow(() -> new IllegalArgumentException("Unknown metric: " + name));
     }
 
+    /** Returns the active metric list, omitting build_time_s unless --show-build-time is set. */
+    List<MetricDef> activeMetrics() {
+        if (showBuildTime) return METRICS;
+        return METRICS.stream().filter(m -> !m.name.equals("build_time_s")).toList();
+    }
+
+    /** Returns the active chart metric list, omitting build_time_s unless --show-build-time is set. */
+    List<String> activeChartMetrics() {
+        if (showBuildTime) return CHART_METRICS;
+        return CHART_METRICS.stream().filter(m -> !m.equals("build_time_s")).toList();
+    }
+
     /** Alternate weighted ordering: efficiency-first. rps/MiB outweighs every
      *  later metric combined; TTFR is next; raw throughput third; RSS under
      *  load fourth. Other metrics (startup RSS, build time, errors) don't
@@ -414,7 +433,7 @@ public class GenerateReport implements Callable<Integer> {
               .append(" per cell</caption>\n");
         }
         sb.append("<thead><tr><th>Runtime</th>");
-        for (MetricDef md : METRICS) {
+        for (MetricDef md : activeMetrics()) {
             sb.append("<th title=\"").append(esc(md.titleAttr)).append("\">")
               .append(esc(md.label)).append("<br><span class=\"unit\">")
               .append(esc(md.unit)).append("</span></th>");
@@ -423,7 +442,7 @@ public class GenerateReport implements Callable<Integer> {
         for (String r : runtimes) {
             sb.append("<tr><th class=\"rt\">").append(esc(r)).append("</th>");
             Double budget = budgetMib.get(r);
-            for (MetricDef md : METRICS) {
+            for (MetricDef md : activeMetrics()) {
                 MetricStats s = stats.getOrDefault(r, Map.of()).get(md.name);
                 boolean over = md.isMemory && exceedsBudget(s, budget);
                 sb.append("<td").append(over ? " class=\"over\"" : "").append(">")
@@ -438,7 +457,7 @@ public class GenerateReport implements Callable<Integer> {
         sb.append("<p class=\"hint\">Bar = mean across iterations. Error bar = sample standard deviation. " +
                   "Runtimes that didn't produce a metric are omitted from that chart.</p>\n");
         sb.append("<div class=\"charts\">\n");
-        for (String metric : CHART_METRICS) {
+        for (String metric : activeChartMetrics()) {
             MetricDef md = METRICS.stream().filter(m -> m.name.equals(metric)).findFirst().orElseThrow();
             byte[] png = renderChart(md.titleAttr, md.label, metric, md.unit, runtimes, stats);
             if (png != null) {
@@ -457,7 +476,7 @@ public class GenerateReport implements Callable<Integer> {
         for (int i = 0; i < maxIter; i++) sb.append("<th>iter ").append(i).append("</th>");
         sb.append("</tr></thead>\n<tbody>\n");
         for (String r : runtimes) {
-            for (MetricDef md : METRICS) {
+            for (MetricDef md : activeMetrics()) {
                 double[] vals = raw.getOrDefault(r, Map.of()).get(md.name);
                 if (vals == null) continue;
                 sb.append("<tr><th class=\"rt\">").append(esc(r)).append("</th>")
@@ -488,7 +507,7 @@ public class GenerateReport implements Callable<Integer> {
                                List<String> jvmRts,
                                Map<String, Map<String, MetricStats>> stats,
                                Map<String, Double> budgetMib) {
-        CategoryResult cat            = computeCategoryWinner(dotnetRt, jvmRts, stats, METRICS);
+        CategoryResult cat            = computeCategoryWinner(dotnetRt, jvmRts, stats, activeMetrics());
         CategoryResult catEfficiency  = computeCategoryWinner(dotnetRt, jvmRts, stats, EFFICIENCY_ORDERED_METRICS);
 
         sb.append("<h3>").append(esc(dotnetRt)).append(" vs ").append(esc(categoryLabel))
@@ -547,7 +566,7 @@ public class GenerateReport implements Callable<Integer> {
         }
         sb.append("</tr></thead>\n<tbody>\n");
 
-        for (MetricDef md : METRICS) {
+        for (MetricDef md : activeMetrics()) {
             MetricStats baseline = stats.getOrDefault(dotnetRt, Map.of()).get(md.name);
 
             // Pick a single winner across all participants in this row
@@ -649,12 +668,9 @@ public class GenerateReport implements Callable<Integer> {
                   "<span class=\"p-sig\">p&nbsp;&lt;&nbsp;0.05</span> · " +
                   "<span class=\"p-noisy\">not significant</span>.</p>\n");
 
-        for (MetricDef md : METRICS) {
-            // Skip build_time_s (deploy concern, not runtime perf — and the
-            // dotnet vs native delta is huge but uninformative) and the
-            // mostly-zero error counters where d/p are degenerate.
-            if (md.name.equals("build_time_s")
-                    || md.name.equals("load_connection_errors")
+        for (MetricDef md : activeMetrics()) {
+            // Skip mostly-zero error counters where Cohen's d / p-value are degenerate.
+            if (md.name.equals("load_connection_errors")
                     || md.name.equals("load_request_timeouts"))
                 continue;
 

@@ -41,6 +41,12 @@ public class CompareRuns implements Callable<Integer> {
             description = "Output HTML file (default: reports/compare-run-{base}-vs-{target}.html)")
     Path output;
 
+    @Option(names = "--show-build-time",
+            description = "Include build-time metric in the report. Default: hidden — " +
+                          "build cost is a one-time CI concern, not a recurring runtime cost.",
+            defaultValue = "false")
+    boolean showBuildTime;
+
     public static void main(String[] args) {
         System.exit(new CommandLine(new CompareRuns()).execute(args));
     }
@@ -75,7 +81,7 @@ public class CompareRuns implements Callable<Integer> {
 
     record MetricDef(String name, String label, String unit, int decimals, boolean lowerIsBetter) {}
 
-    /** Metrics shown in the per-runtime table. Ordered by importance. */
+    /** All metrics. Build time is excluded from reports by default (see --show-build-time). */
     static final List<MetricDef> METRICS = List.of(
         new MetricDef("load_throughput_rps",     "Throughput",     "rps",    0, false),
         new MetricDef("ttfr_ms",                 "TTFR",           "ms",     0, true),
@@ -87,6 +93,12 @@ public class CompareRuns implements Callable<Integer> {
         new MetricDef("latency_max_ms",          "Latency max",    "ms",     1, true),
         new MetricDef("build_time_s",            "Build time",     "s",      2, true)
     );
+
+    /** Returns the active metric list, omitting build_time_s unless --show-build-time is set. */
+    List<MetricDef> activeMetrics() {
+        if (showBuildTime) return METRICS;
+        return METRICS.stream().filter(m -> !m.name.equals("build_time_s")).toList();
+    }
 
     /** Run metadata fields shown in the header table. */
     static final List<String[]> META_FIELDS = List.of(
@@ -194,7 +206,7 @@ public class CompareRuns implements Callable<Integer> {
         for (String r : allRuntimes) {
             Map<String, Stats> bs = baseStats.getOrDefault(r, Map.of());
             Map<String, Stats> ts = targetStats.getOrDefault(r, Map.of());
-            for (MetricDef md : METRICS) {
+            for (MetricDef md : activeMetrics()) {
                 Stats b = bs.get(md.name), t = ts.get(md.name);
                 if (b == null || t == null) continue;
                 if (b.mean == 0 && t.mean == 0) { ties++; totalCmp++; continue; }
@@ -249,7 +261,7 @@ public class CompareRuns implements Callable<Integer> {
               .append("<th title=\"Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. ")
               .append("Bold/highlighted when p &lt; 0.05.\">Welch p</th>")
               .append("</tr></thead>\n<tbody>\n");
-            for (MetricDef md : METRICS) {
+            for (MetricDef md : activeMetrics()) {
                 Stats b = bs.get(md.name), t = ts.get(md.name);
                 String baseCls = "", targetCls = "";
                 if (b != null && t != null) {
