@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>Compare run #11 vs #14</title>
+<style>
+  body { font: 14px/1.45 system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 1.5rem auto; padding: 0 1rem; color: #222; }
+  h1 { margin-top: 0; }
+  h2 { margin-top: 1.6rem; border-bottom: 1px solid #ddd; padding-bottom: 0.2rem; }
+  h3 { margin-top: 1rem; font-size: 1rem; color: #333; }
+  .hint { color: #666; font-size: 0.92em; }
+  .summary { padding: 0.6rem 0.8rem; background: #f6f7f9; border-left: 3px solid #4a6b9b; margin: 0.6rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: 0.4rem 0; }
+  th, td { padding: 0.35rem 0.6rem; text-align: right; border-bottom: 1px solid #eee; }
+  th { font-weight: 500; }
+  th.metric { text-align: left; }
+  table.meta th { text-align: left; width: 12rem; }
+  table.meta td { text-align: left; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.92em; }
+  table.meta td.differ { background: #fff8e1; }
+  .scroll { overflow-x: auto; }
+  .win  { background: #B8E0BA40; }
+  .miss { background: #f0f0f0; color: #999; }
+  .sd   { color: #888; font-size: 0.85em; }
+  .unit { color: #888; font-weight: normal; font-size: 0.85em; }
+  .na   { color: #aaa; }
+  .delta-up   { color: #2a8c2f; font-weight: 500; }
+  .delta-down { color: #c23b22; font-weight: 500; }
+  .delta-flat { color: #888; }
+  .win-key  { background: #B8E0BA40; padding: 0 4px; border-radius: 3px; }
+  .miss-key { background: #f0f0f0; padding: 0 4px; border-radius: 3px; }
+  .cv { font-size: 0.78em; }
+  .cv-stable   { color: #2a8c2f; }
+  .cv-moderate { color: #b58a14; }
+  .cv-noisy    { color: #c23b22; font-weight: 500; }
+  .d-negligible { color: #888; }
+  .d-small      { color: #555; }
+  .d-medium     { color: #b58a14; font-weight: 500; }
+  .d-large      { color: #2a8c2f; font-weight: 500; }
+  .d-label      { color: #888; font-weight: normal; font-size: 0.85em; }
+  .p-very-sig { background: #B8E0BA60; padding: 0 0.2em; border-radius: 3px; }
+  .p-sig      { background: #B8E0BA30; padding: 0 0.2em; border-radius: 3px; }
+  .p-noisy    { color: #999; }
+</style>
+</head><body>
+<h1>Comparison: run #11 → run #14</h1>
+<h2>Configuration</h2>
+<table class="meta"><thead><tr><th>Setting</th><th>Run #11 (base)</th><th>Run #14 (target)</th></tr></thead><tbody>
+<tr><th>Description</th><td><span class="na">—</span></td><td><span class="na">—</span></td></tr>
+<tr><th>JVM heap</th><td>-Xms128m -Xmx256m</td><td>-Xms128m -Xmx256m</td></tr>
+<tr><th>JVM args</th><td>-Xgcpolicy:optthruput -Xgcthreads1 -Xminf0.1 -Xmaxf0.2</td><td>-Xgcpolicy:optthruput -Xgcthreads1 -Xminf0.1 -Xmaxf0.2</td></tr>
+<tr><th>Java</th><td>semeru-openj9-25.0.2+10_openj9-0.57.0</td><td>semeru-openj9-25.0.2+10_openj9-0.57.0</td></tr>
+<tr><th>Iterations</th><td>7</td><td>7</td></tr>
+<tr><th>Started</th><td class="differ">2026-05-12 15:40:01.0</td><td class="differ">2026-05-14 10:51:06.0</td></tr>
+<tr><th>Deploy commit</th><td>fc104f4</td><td>fc104f4</td></tr>
+</tbody></table>
+<h2>Summary</h2>
+<p class="summary">Of <strong>24</strong> (runtime × metric) comparisons: target wins <strong>11</strong>, base wins <strong>13</strong>. Biggest improvement on target: <strong>quarkus-semeru · Load RSS (-5.6%)</strong>. Biggest regression: <strong>quarkus-semeru · Throughput (-3.2%)</strong>.</p>
+<h2>Per-runtime comparison</h2>
+<p class="hint">Cells show mean ± stddev with CV% (run-to-run consistency: <span class="cv-stable">&lt;5% stable</span> · <span class="cv-moderate">5-15% moderate</span> · <span class="cv-noisy">&gt;15% noisy</span>). Hover a cell for the 95% CI. Δ% is target relative to base. d is Cohen's effect size; Welch p is the two-tailed p-value (<span class="p-very-sig">p&lt;0.001</span>, <span class="p-sig">p&lt;0.05</span>). <span class="win-key">Green</span> marks the better mean per row; <span class="miss-key">grey</span> marks rows where one side has no data.</p>
+<h3>quarkus-jvm</h3>
+<div class="scroll"><table class="compare"><thead><tr><th>Metric</th><th>Run #11</th><th>Run #14</th><th>Δ</th><th>Δ%</th><th title="Cohen's d — pooled-stddev effect size, sign relative to base. Magnitude: &lt;0.2 negligible, 0.2-0.5 small, 0.5-0.8 medium, ≥0.8 large.">d</th><th title="Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. Bold/highlighted when p &lt; 0.05.">Welch p</th></tr></thead>
+<tbody>
+<tr><th class="metric">Throughput <span class="unit">(rps)</span></th><td class=""><span title="95% CI [9,615.98, 10,125.39]">9,871 <span class="sd">±275</span> <span class="cv cv-stable">(CV 2.8%)</span></span></td><td class="win"><span title="95% CI [9,885.00, 10,368.19]">10,127 <span class="sd">±261</span> <span class="cv cv-stable">(CV 2.6%)</span></span></td><td>+256</td><td class="delta-up">+2.6%</td><td class="d-large">0.95 <span class="d-label">large</span></td><td class="p-noisy">0.0998</td></tr>
+<tr><th class="metric">TTFR <span class="unit">(ms)</span></th><td class=""><span title="95% CI [3,877.24, 4,126.00]">4,002 <span class="sd">±134</span> <span class="cv cv-stable">(CV 3.4%)</span></span></td><td class="win"><span title="95% CI [3,860.81, 4,056.76]">3,959 <span class="sd">±106</span> <span class="cv cv-stable">(CV 2.7%)</span></span></td><td>-43</td><td class="delta-up">-1.1%</td><td class="d-small">-0.35 <span class="d-label">small</span></td><td class="p-noisy">0.5211</td></tr>
+<tr><th class="metric">rps / MiB <span class="unit">(rps/MiB)</span></th><td class=""><span title="95% CI [27.35, 28.92]">28.14 <span class="sd">±0.85</span> <span class="cv cv-stable">(CV 3.0%)</span></span></td><td class="win"><span title="95% CI [28.25, 29.91]">29.08 <span class="sd">±0.90</span> <span class="cv cv-stable">(CV 3.1%)</span></span></td><td>+0.95</td><td class="delta-up">+3.4%</td><td class="d-large">1.08 <span class="d-label">large</span></td><td class="p-noisy">0.0656</td></tr>
+<tr><th class="metric">Startup RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [264.59, 264.97]">264.8 <span class="sd">±0.2</span> <span class="cv cv-stable">(CV 0.08%)</span></span></td><td class=""><span title="95% CI [265.63, 265.89]">265.8 <span class="sd">±0.1</span> <span class="cv cv-stable">(CV 0.05%)</span></span></td><td>+1.0</td><td class="delta-flat">+0.4%</td><td class="d-large">5.50 <span class="d-label">large</span></td><td class="p-very-sig">&lt;0.0001</td></tr>
+<tr><th class="metric">1st-req RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [278.60, 280.38]">279.5 <span class="sd">±1.0</span> <span class="cv cv-stable">(CV 0.34%)</span></span></td><td class=""><span title="95% CI [279.40, 279.94]">279.7 <span class="sd">±0.3</span> <span class="cv cv-stable">(CV 0.10%)</span></span></td><td>+0.2</td><td class="delta-flat">+0.1%</td><td class="d-small">0.25 <span class="d-label">small</span></td><td class="p-noisy">0.6600</td></tr>
+<tr><th class="metric">Load RSS <span class="unit">(MiB)</span></th><td class=""><span title="95% CI [343.98, 357.82]">350.9 <span class="sd">±7.5</span> <span class="cv cv-stable">(CV 2.1%)</span></span></td><td class="win"><span title="95% CI [342.07, 354.53]">348.3 <span class="sd">±6.7</span> <span class="cv cv-stable">(CV 1.9%)</span></span></td><td>-2.6</td><td class="delta-up">-0.7%</td><td class="d-small">-0.36 <span class="d-label">small</span></td><td class="p-noisy">0.5081</td></tr>
+<tr><th class="metric">Latency avg <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [9.59, 10.07]">9.83 <span class="sd">±0.26</span> <span class="cv cv-stable">(CV 2.6%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><th class="metric">Latency max <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [122.16, 151.66]">136.9 <span class="sd">±15.9</span> <span class="cv cv-moderate">(CV 12%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+<h3>quarkus-semeru</h3>
+<div class="scroll"><table class="compare"><thead><tr><th>Metric</th><th>Run #11</th><th>Run #14</th><th>Δ</th><th>Δ%</th><th title="Cohen's d — pooled-stddev effect size, sign relative to base. Magnitude: &lt;0.2 negligible, 0.2-0.5 small, 0.5-0.8 medium, ≥0.8 large.">d</th><th title="Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. Bold/highlighted when p &lt; 0.05.">Welch p</th></tr></thead>
+<tbody>
+<tr><th class="metric">Throughput <span class="unit">(rps)</span></th><td class="win"><span title="95% CI [9,601.58, 9,823.51]">9,713 <span class="sd">±120</span> <span class="cv cv-stable">(CV 1.2%)</span></span></td><td class=""><span title="95% CI [9,245.05, 9,550.04]">9,398 <span class="sd">±165</span> <span class="cv cv-stable">(CV 1.8%)</span></span></td><td>-315</td><td class="delta-down">-3.2%</td><td class="d-large">-2.18 <span class="d-label">large</span></td><td class="p-sig">0.0018</td></tr>
+<tr><th class="metric">TTFR <span class="unit">(ms)</span></th><td class="win"><span title="95% CI [3,176.42, 3,318.84]">3,248 <span class="sd">±77</span> <span class="cv cv-stable">(CV 2.4%)</span></span></td><td class=""><span title="95% CI [3,163.62, 3,337.39]">3,251 <span class="sd">±94</span> <span class="cv cv-stable">(CV 2.9%)</span></span></td><td>+3</td><td class="delta-flat">+0.1%</td><td class="d-negligible">0.03 <span class="d-label">negligible</span></td><td class="p-noisy">0.9511</td></tr>
+<tr><th class="metric">rps / MiB <span class="unit">(rps/MiB)</span></th><td class=""><span title="95% CI [28.39, 29.80]">29.10 <span class="sd">±0.76</span> <span class="cv cv-stable">(CV 2.6%)</span></span></td><td class="win"><span title="95% CI [28.98, 30.68]">29.83 <span class="sd">±0.92</span> <span class="cv cv-stable">(CV 3.1%)</span></span></td><td>+0.73</td><td class="delta-up">+2.5%</td><td class="d-large">0.87 <span class="d-label">large</span></td><td class="p-noisy">0.1301</td></tr>
+<tr><th class="metric">Startup RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [254.16, 254.65]">254.4 <span class="sd">±0.3</span> <span class="cv cv-stable">(CV 0.10%)</span></span></td><td class=""><span title="95% CI [254.59, 255.34]">255.0 <span class="sd">±0.4</span> <span class="cv cv-stable">(CV 0.16%)</span></span></td><td>+0.6</td><td class="delta-flat">+0.2%</td><td class="d-large">1.63 <span class="d-label">large</span></td><td class="p-sig">0.0119</td></tr>
+<tr><th class="metric">1st-req RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [262.93, 264.97]">263.9 <span class="sd">±1.1</span> <span class="cv cv-stable">(CV 0.42%)</span></span></td><td class=""><span title="95% CI [264.63, 265.93]">265.3 <span class="sd">±0.7</span> <span class="cv cv-stable">(CV 0.26%)</span></span></td><td>+1.3</td><td class="delta-down">+0.5%</td><td class="d-large">1.44 <span class="d-label">large</span></td><td class="p-sig">0.0219</td></tr>
+<tr><th class="metric">Load RSS <span class="unit">(MiB)</span></th><td class=""><span title="95% CI [327.70, 340.20]">334.0 <span class="sd">±6.8</span> <span class="cv cv-stable">(CV 2.0%)</span></span></td><td class="win"><span title="95% CI [307.68, 322.75]">315.2 <span class="sd">±8.1</span> <span class="cv cv-stable">(CV 2.6%)</span></span></td><td>-18.7</td><td class="delta-up">-5.6%</td><td class="d-large">-2.50 <span class="d-label">large</span></td><td class="p-very-sig">0.0006</td></tr>
+<tr><th class="metric">Latency avg <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [10.42, 10.76]">10.59 <span class="sd">±0.18</span> <span class="cv cv-stable">(CV 1.7%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><th class="metric">Latency max <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [125.23, 150.70]">138.0 <span class="sd">±13.8</span> <span class="cv cv-moderate">(CV 10.0%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+<h3>quarkus-virtual</h3>
+<div class="scroll"><table class="compare"><thead><tr><th>Metric</th><th>Run #11</th><th>Run #14</th><th>Δ</th><th>Δ%</th><th title="Cohen's d — pooled-stddev effect size, sign relative to base. Magnitude: &lt;0.2 negligible, 0.2-0.5 small, 0.5-0.8 medium, ≥0.8 large.">d</th><th title="Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. Bold/highlighted when p &lt; 0.05.">Welch p</th></tr></thead>
+<tbody>
+<tr><th class="metric">Throughput <span class="unit">(rps)</span></th><td class=""><span title="95% CI [9,880.05, 10,387.09]">10,134 <span class="sd">±274</span> <span class="cv cv-stable">(CV 2.7%)</span></span></td><td class="win"><span title="95% CI [10,112.61, 10,445.09]">10,279 <span class="sd">±180</span> <span class="cv cv-stable">(CV 1.7%)</span></span></td><td>+145</td><td class="delta-up">+1.4%</td><td class="d-medium">0.63 <span class="d-label">medium</span></td><td class="p-noisy">0.2672</td></tr>
+<tr><th class="metric">TTFR <span class="unit">(ms)</span></th><td class=""><span title="95% CI [3,910.75, 4,061.40]">3,986 <span class="sd">±81</span> <span class="cv cv-stable">(CV 2.0%)</span></span></td><td class="win"><span title="95% CI [3,850.29, 4,047.28]">3,949 <span class="sd">±107</span> <span class="cv cv-stable">(CV 2.7%)</span></span></td><td>-37</td><td class="delta-up">-0.9%</td><td class="d-small">-0.39 <span class="d-label">small</span></td><td class="p-noisy">0.4769</td></tr>
+<tr><th class="metric">rps / MiB <span class="unit">(rps/MiB)</span></th><td class=""><span title="95% CI [32.24, 34.01]">33.13 <span class="sd">±0.96</span> <span class="cv cv-stable">(CV 2.9%)</span></span></td><td class="win"><span title="95% CI [32.38, 33.98]">33.18 <span class="sd">±0.86</span> <span class="cv cv-stable">(CV 2.6%)</span></span></td><td>+0.05</td><td class="delta-flat">+0.2%</td><td class="d-negligible">0.06 <span class="d-label">negligible</span></td><td class="p-noisy">0.9137</td></tr>
+<tr><th class="metric">Startup RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [264.63, 265.15]">264.9 <span class="sd">±0.3</span> <span class="cv cv-stable">(CV 0.10%)</span></span></td><td class=""><span title="95% CI [265.65, 265.79]">265.7 <span class="sd">±0.1</span> <span class="cv cv-stable">(CV 0.03%)</span></span></td><td>+0.8</td><td class="delta-flat">+0.3%</td><td class="d-large">4.06 <span class="d-label">large</span></td><td class="p-very-sig">0.0001</td></tr>
+<tr><th class="metric">1st-req RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [279.04, 280.88]">280.0 <span class="sd">±1.0</span> <span class="cv cv-stable">(CV 0.36%)</span></span></td><td class=""><span title="95% CI [280.25, 281.01]">280.6 <span class="sd">±0.4</span> <span class="cv cv-stable">(CV 0.15%)</span></span></td><td>+0.7</td><td class="delta-flat">+0.2%</td><td class="d-large">0.88 <span class="d-label">large</span></td><td class="p-noisy">0.1393</td></tr>
+<tr><th class="metric">Load RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [304.64, 307.23]">305.9 <span class="sd">±1.4</span> <span class="cv cv-stable">(CV 0.46%)</span></span></td><td class=""><span title="95% CI [304.65, 315.13]">309.9 <span class="sd">±5.7</span> <span class="cv cv-stable">(CV 1.8%)</span></span></td><td>+4.0</td><td class="delta-down">+1.3%</td><td class="d-large">0.96 <span class="d-label">large</span></td><td class="p-noisy">0.1175</td></tr>
+<tr><th class="metric">Latency avg <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [9.52, 9.84]">9.68 <span class="sd">±0.17</span> <span class="cv cv-stable">(CV 1.8%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><th class="metric">Latency max <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [63.01, 71.35]">67.2 <span class="sd">±4.5</span> <span class="cv cv-moderate">(CV 6.7%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+<h3>quarkus-virtual-semeru</h3>
+<div class="scroll"><table class="compare"><thead><tr><th>Metric</th><th>Run #11</th><th>Run #14</th><th>Δ</th><th>Δ%</th><th title="Cohen's d — pooled-stddev effect size, sign relative to base. Magnitude: &lt;0.2 negligible, 0.2-0.5 small, 0.5-0.8 medium, ≥0.8 large.">d</th><th title="Welch's two-tailed t-test p-value — probability of seeing this difference if the runtimes were truly identical. Bold/highlighted when p &lt; 0.05.">Welch p</th></tr></thead>
+<tbody>
+<tr><th class="metric">Throughput <span class="unit">(rps)</span></th><td class="win"><span title="95% CI [9,769.11, 10,146.42]">9,958 <span class="sd">±204</span> <span class="cv cv-stable">(CV 2.0%)</span></span></td><td class=""><span title="95% CI [9,588.43, 9,798.24]">9,693 <span class="sd">±113</span> <span class="cv cv-stable">(CV 1.2%)</span></span></td><td>-264</td><td class="delta-down">-2.7%</td><td class="d-large">-1.60 <span class="d-label">large</span></td><td class="p-sig">0.0143</td></tr>
+<tr><th class="metric">TTFR <span class="unit">(ms)</span></th><td class=""><span title="95% CI [3,230.15, 3,443.95]">3,337 <span class="sd">±116</span> <span class="cv cv-stable">(CV 3.5%)</span></span></td><td class="win"><span title="95% CI [3,200.84, 3,376.96]">3,289 <span class="sd">±95</span> <span class="cv cv-stable">(CV 2.9%)</span></span></td><td>-48</td><td class="delta-up">-1.4%</td><td class="d-small">-0.45 <span class="d-label">small</span></td><td class="p-noisy">0.4122</td></tr>
+<tr><th class="metric">rps / MiB <span class="unit">(rps/MiB)</span></th><td class="win"><span title="95% CI [32.85, 34.19]">33.52 <span class="sd">±0.72</span> <span class="cv cv-stable">(CV 2.2%)</span></span></td><td class=""><span title="95% CI [32.75, 33.45]">33.10 <span class="sd">±0.38</span> <span class="cv cv-stable">(CV 1.1%)</span></span></td><td>-0.42</td><td class="delta-down">-1.2%</td><td class="d-medium">-0.72 <span class="d-label">medium</span></td><td class="p-noisy">0.2085</td></tr>
+<tr><th class="metric">Startup RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [254.04, 254.43]">254.2 <span class="sd">±0.2</span> <span class="cv cv-stable">(CV 0.08%)</span></span></td><td class=""><span title="95% CI [254.76, 255.31]">255.0 <span class="sd">±0.3</span> <span class="cv cv-stable">(CV 0.12%)</span></span></td><td>+0.8</td><td class="delta-flat">+0.3%</td><td class="d-large">3.10 <span class="d-label">large</span></td><td class="p-very-sig">0.0001</td></tr>
+<tr><th class="metric">1st-req RSS <span class="unit">(MiB)</span></th><td class="win"><span title="95% CI [263.05, 265.16]">264.1 <span class="sd">±1.1</span> <span class="cv cv-stable">(CV 0.43%)</span></span></td><td class=""><span title="95% CI [264.52, 266.56]">265.5 <span class="sd">±1.1</span> <span class="cv cv-stable">(CV 0.41%)</span></span></td><td>+1.4</td><td class="delta-down">+0.5%</td><td class="d-large">1.28 <span class="d-label">large</span></td><td class="p-sig">0.0335</td></tr>
+<tr><th class="metric">Load RSS <span class="unit">(MiB)</span></th><td class=""><span title="95% CI [295.18, 299.00]">297.1 <span class="sd">±2.1</span> <span class="cv cv-stable">(CV 0.69%)</span></span></td><td class="win"><span title="95% CI [292.08, 293.61]">292.8 <span class="sd">±0.8</span> <span class="cv cv-stable">(CV 0.28%)</span></span></td><td>-4.2</td><td class="delta-up">-1.4%</td><td class="d-large">-2.70 <span class="d-label">large</span></td><td class="p-sig">0.0010</td></tr>
+<tr><th class="metric">Latency avg <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [10.16, 10.38]">10.27 <span class="sd">±0.12</span> <span class="cv cv-stable">(CV 1.2%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><th class="metric">Latency max <span class="unit">(ms)</span></th><td class="miss"><span class="na">—</span></td><td class=""><span title="95% CI [80.65, 166.37]">123.5 <span class="sd">±46.3</span> <span class="cv cv-noisy">(CV 38%)</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody></table></div>
+</body></html>
