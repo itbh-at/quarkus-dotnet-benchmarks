@@ -85,8 +85,9 @@ help() {
   echo "                                                              Default: Whatever version is set in pom.xml of the Quarkus app"
   echo "                                                              NOTE: With rsync deployment, version updates happen locally — this flag only sets the qDup state value, no remote pom edit"
   echo "  --runtimes <RUNTIMES>                                   The runtimes to test, separated by commas"
-  echo "                                                              Accepted values (1 or more of): quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef"
-  echo "                                                              Default: 'quarkus-jvm,quarkus-leyden,quarkus-virtual,quarkus-virtual-leyden,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
+  echo "                                                              Accepted values (1 or more of): quarkus-jvm, quarkus-leyden, quarkus-semeru, quarkus-virtual, quarkus-virtual-leyden, quarkus-virtual-semeru, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef"
+  echo "                                                              Default: 'quarkus-jvm,quarkus-leyden,quarkus-semeru,quarkus-virtual,quarkus-virtual-leyden,quarkus-virtual-semeru,quarkus-native,quarkus-native-mandrel,dotnet-aspnet-ef'"
+  echo "                                                              NOTE: quarkus-semeru and quarkus-virtual-semeru require a Semeru/OpenJ9 JVM (--java-version semeru-openj9-... or --java-home)"
   echo "  --run-identifier <RUN_IDENTIFIER>                       An optional identifier for this run to be added to the run output"
   echo "  --tests <TESTS_TO_RUN>                                  The tests to run, separated by commas"
   echo "                                                              Accepted values (1 or more of): measure-build-times, measure-time-to-first-request, measure-rss, run-load-test"
@@ -355,8 +356,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   PROFILER="none"
   QUARKUS_BUILD_CONFIG_ARGS=""
   QUARKUS_VERSION=""
-  ALLOWED_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
-  DEFAULT_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
+  ALLOWED_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-semeru" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-virtual-semeru" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
+  DEFAULT_RUNTIMES=("quarkus-jvm" "quarkus-leyden" "quarkus-semeru" "quarkus-virtual" "quarkus-virtual-leyden" "quarkus-virtual-semeru" "quarkus-native" "quarkus-native-mandrel" "dotnet-aspnet-ef")
   RUNTIMES=${DEFAULT_RUNTIMES[@]}
   ALLOWED_TESTS_TO_RUN=("measure-build-times" "measure-time-to-first-request" "measure-rss" "run-load-test")
   DEFAULT_TESTS_TO_RUN=("measure-time-to-first-request" "measure-rss" "run-load-test")

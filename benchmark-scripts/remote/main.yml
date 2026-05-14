@@ -89,7 +89,7 @@ states:
   PROFILER_JVM_ARGS:
   BASE_JAVA_CMD: ${{APP_CMD_PREFIX}} java ${{config.jvm.memory}} ${{config.jvm.args}} ${{PROFILER_JVM_ARGS}}
   TESTS : [measure-time-to-first-request, measure-rss, run-load-test]
-  RUNTIMES: [quarkus-jvm, quarkus-leyden, quarkus-virtual, quarkus-virtual-leyden, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef]
+  RUNTIMES: [quarkus-jvm, quarkus-leyden, quarkus-semeru, quarkus-virtual, quarkus-virtual-leyden, quarkus-virtual-semeru, quarkus-native, quarkus-native-mandrel, dotnet-aspnet-ef]
   TARGET_URL: http://localhost:8080/fruits
   QUARKUS-PLATFORM-ARTIFACT-ID: quarkus-bom
   METRICS_DIR: /tmp
@@ -120,6 +120,23 @@ states:
       buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*' -Dquarkus.package.jar.aot.additional-recording-args=${{config.aot.recordingArgs}}"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus-semeru
+      type: jvm
+      dir: ${{QUARKUS_JVM_DIR}}
+      updateScript: skip-version-update
+      buildRequiresTestServices: false
+      # OpenJ9 Shared Classes Cache (SCC) — Semeru's AOT equivalent.
+      # quarkus.package.jar.aot.enabled=true auto-detects the Semeru JVM and
+      # generates an SCC instead of a HotSpot AOT cache.
+      # quarkus.package.jar.aot.additional-recording-args is shared between the
+      # Leyden and Semeru paths (same build step, same property) — confirmed in
+      # JvmStartupOptimizerArchiveBuildStep.java in Quarkus 3.35.x.
+      # -Xscmx128M  caps the SCC at 128 MiB (matches our -Xmx256m budget).
+      # -Xtune:virtualized  tells the JIT/thread-pool to assume a constrained
+      #   CPU environment (we pin to 4 CPUs via taskset).
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dquarkus.package.jar.aot.additional-recording-args=-Xscmx128M,-Xtune:virtualized -Dsurefire.excludes='**/*'"
+      runCmd: "${{BASE_JAVA_CMD}} -Xshareclasses:name=quarkus-app,cacheDir=${{RUNTIME_BUILD_DIR}}/quarkus-app/app-scc,readonly -Xscmx128M -Xtune:virtualized -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus-virtual
       type: jvm
       dir: ${{QUARKUS_VIRTUAL_DIR}}
@@ -139,6 +156,15 @@ states:
       # by the launcher.
       buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*' -Dquarkus.package.jar.aot.additional-recording-args=${{config.aot.recordingArgs}}"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus-virtual-semeru
+      type: jvm
+      dir: ${{QUARKUS_VIRTUAL_DIR}}
+      updateScript: skip-version-update
+      buildRequiresTestServices: false
+      # See comment on quarkus-semeru — same SCC approach, virtual-threads variant.
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dquarkus.package.jar.aot.additional-recording-args=-Xscmx128M,-Xtune:virtualized -Dsurefire.excludes='**/*'"
+      runCmd: "${{BASE_JAVA_CMD}} -Xshareclasses:name=quarkus-app,cacheDir=${{RUNTIME_BUILD_DIR}}/quarkus-app/app-scc,readonly -Xscmx128M -Xtune:virtualized -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus-native
       type: native
